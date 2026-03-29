@@ -1,15 +1,15 @@
-# Istasyon Takip Backend (Phase 1)
+# İstasyon Takip Backend (Phase 1)
 
-Bu proje, mobil uygulamanin kullandigi merkezi bir backend olarak EV test istasyonlarini yonetmek icin hazirlanmistir.
+Bu proje, mobil uygulamanın kullandığı merkezi bir backend olarak EV test istasyonlarını yönetmek için hazırlanmıştır.
 
-## Kullanim Amaci
-- Istasyonlari merkezi olarak listelemek, olusturmak, guncellemek, arsivlemek ve silmek
-- Istasyon bazli dinamik custom field yapisini yonetmek
-- Istasyon test gecmisi tutmak
-- Istasyon ariza/kayitlarini takip etmek
-- Basit ama genisletilebilir bir auth yapisi saglamak
+## Kullanım Amacı
+- İstasyonları merkezi olarak listelemek, oluşturmak, güncellemek, arşivlemek ve silmek
+- İstasyon bazlı dinamik custom field yapısını yönetmek
+- İstasyon test geçmişi tutmak
+- İstasyon arıza/kayıtlarını takip etmek
+- Basit ama genişletilebilir bir auth yapısı sağlamak
 
-## Teknoloji Yigini
+## Teknoloji Yığını
 - Node.js
 - TypeScript
 - Fastify
@@ -17,14 +17,14 @@ Bu proje, mobil uygulamanin kullandigi merkezi bir backend olarak EV test istasy
 - Drizzle ORM (`drizzle-orm` + `pg`)
 
 ## Proje Mimarisi
-Kod tabani moduler olacak sekilde ayrilmistir:
-- `routes`: Sadece HTTP katmani, request/response schema ve preHandler
-- `services`: Is kurallari ve uygulama mantigi
-- `repositories`: Veritabani erisimi (Drizzle sorgulari)
-- `plugins`: Auth, hata yakalama gibi ortak Fastify davranislari
-- `utils`: Ortak yardimci fonksiyonlar
+Kod tabanı modüler olacak şekilde ayrılmıştır:
+- `routes`: Sadece HTTP katmanı, request/response schema ve preHandler
+- `services`: İş kuralları ve uygulama mantığı
+- `repositories`: Veritabanı erişimi (Drizzle sorguları)
+- `plugins`: Auth, hata yakalama gibi ortak Fastify davranışları
+- `utils`: Ortak yardımcı fonksiyonlar
 
-## Klasor Yapisi
+## Klasör Yapısı
 ```text
 src/
   app.ts
@@ -54,17 +54,17 @@ drizzle/
 ```
 
 ## Kurulum
-1. Bagimliliklari yukle:
+1. Bağımlılıkları yükle:
 ```bash
 npm install
 ```
 
-2. Ortam degiskenlerini olustur:
+2. Ortam değişkenlerini oluştur:
 ```bash
 cp .env.example .env
 ```
 
-3. Veritabanini migrate et:
+3. Veritabanını migrate et:
 ```bash
 npm run db:migrate
 ```
@@ -74,35 +74,35 @@ npm run db:migrate
 npm run seed
 ```
 
-5. Gelistirme modunda calistir:
+5. Geliştirme modunda çalıştır:
 ```bash
 npm run dev
 ```
 
 ## NPM Scriptleri
-- `npm run dev`: Gelistirme modunda calistirir (`tsx watch`)
+- `npm run dev`: Geliştirme modunda çalıştırır (`tsx watch`)
 - `npm run build`: TypeScript derleme
-- `npm run start`: Derlenmis projeyi calistirir
-- `npm run db:generate`: Drizzle migration SQL uretir
-- `npm run db:migrate`: Migrationlari uygular
-- `npm run db:push`: Drizzle schema'yi direkt DB'ye push eder
-- `npm run db:studio`: Drizzle Studio acar
-- `npm run seed`: Seed verisi yukler
+- `npm run start`: Derlenmiş projeyi çalıştırır
+- `npm run db:generate`: Drizzle migration SQL üretir
+- `npm run db:migrate`: Migrationları uygular
+- `npm run db:push`: Drizzle schema'yı direkt DB'ye push eder
+- `npm run db:studio`: Drizzle Studio açar
+- `npm run seed`: Seed verisi yükler
 - `npm run db:setup`: Migrate + seed
 
-## Ortam Degiskenleri
-Ornek dosya: `.env.example`
+## Ortam Değişkenleri
+Örnek dosya: `.env.example`
 
-Gerekli temel degiskenler:
+Gerekli temel değişkenler:
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `JWT_EXPIRES_IN`
 - `HOST`
 - `PORT`
 
-Not: `DATABASE_URL` icinde sifrede `/`, `@`, `:`, `#`, `?`, `%` gibi karakterler varsa URL-encode edilmelidir.
+Not: `DATABASE_URL` içinde şifrede `/`, `@`, `:`, `#`, `?`, `%` gibi karakterler varsa URL-encode edilmelidir.
 
-## Faz 1 Endpointleri
+## Faz 1 Endpoint'leri
 ### Auth
 - `POST /auth/login`
 - `GET /auth/me`
@@ -131,7 +131,7 @@ Not: `DATABASE_URL` icinde sifrede `/`, `@`, `:`, `#`, `?`, `%` gibi karakterler
 - `PATCH /issues/:id/status`
 
 ## Filtreleme (GET /stations)
-Asagidaki filtreler desteklenir:
+Aşağıdaki filtreler desteklenir:
 - `search`
 - `status`
 - `brand`
@@ -139,17 +139,17 @@ Asagidaki filtreler desteklenir:
 - `sortBy`
 - Dinamik custom field filtreleri (`cf.<key>=<value>`)
 
-Ornek:
+Örnek:
 ```http
 GET /stations?status=active&cf.firmware_version=v3
 ```
 
-## Seed Hesaplari
+## Seed Hesapları
 - `admin@evlab.local` / `Admin123!`
 - `operator@evlab.local` / `Operator123!`
 
-## Faz 2 Icin Oneriler
-- Rol bazli yetkilendirme (RBAC)
-- Sayfalama + toplam sayi metadata
-- Test kapsami (unit + integration)
-- API dokumantasyonu (OpenAPI/Swagger)
+## Faz 2 İçin Öneriler
+- Rol bazlı yetkilendirme (RBAC)
+- Sayfalama + toplam sayı metadata
+- Test kapsamı (unit + integration)
+- API dokümantasyonu (OpenAPI/Swagger)
