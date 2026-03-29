@@ -1,0 +1,36 @@
+{
+  "name": "istasyon-takip-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Phase 1 backend for EV station management",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "db:push": "drizzle-kit push --config=drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config=drizzle.config.ts",
+    "seed": "tsx src/db/seed.ts",
+    "db:setup": "npm run db:migrate && npm run seed"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.1",
+    "@fastify/jwt": "^10.0.0",
+    "@sinclair/typebox": "^0.34.41",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.44.6",
+    "fastify": "^5.6.1",
+    "fastify-plugin": "^5.1.0",
+    "pg": "^8.16.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
