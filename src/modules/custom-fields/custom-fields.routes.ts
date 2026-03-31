@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
+import { assertCanWrite } from '../../utils/rbac';
 
 import {
   customFieldCreateBodySchema,
@@ -28,14 +30,14 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const query = request.query as { active?: boolean };
       const data = await customFieldsService.list(query.active);
-      return { data };
+      return successResponse(data);
     },
   );
 
   fastify.post(
     '/',
     {
-      preHandler: [fastify.authenticate],
+      preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         body: customFieldCreateBodySchema,
         response: {
@@ -57,14 +59,14 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       const data = await customFieldsService.create(getCurrentUserId(request), body);
-      return reply.status(201).send({ data });
+      return reply.status(201).send(successResponse(data));
     },
   );
 
   fastify.put(
     '/:id',
     {
-      preHandler: [fastify.authenticate],
+      preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         params: customFieldIdParamsSchema,
         body: customFieldUpdateBodySchema,
@@ -86,14 +88,14 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       const data = await customFieldsService.update(getCurrentUserId(request), params.id, body);
-      return { data };
+      return successResponse(data);
     },
   );
 
   fastify.patch(
     '/:id/active',
     {
-      preHandler: [fastify.authenticate],
+      preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         params: customFieldIdParamsSchema,
         body: customFieldSetActiveBodySchema,
@@ -107,7 +109,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       const body = request.body as { isActive: boolean };
 
       const data = await customFieldsService.setActive(getCurrentUserId(request), params.id, body.isActive);
-      return { data };
+      return successResponse(data);
     },
   );
 };

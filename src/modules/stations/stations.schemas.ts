@@ -36,6 +36,8 @@ export const stationListQuerySchema = Type.Object(
     ),
     sortOrder: Type.Optional(Type.Union([Type.Literal('asc'), Type.Literal('desc')])),
     includeArchived: Type.Optional(Type.Boolean()),
+    page: Type.Optional(Type.Integer({ minimum: 1 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   },
   {
     additionalProperties: true,
@@ -90,8 +92,16 @@ export const stationResponseDataSchema = Type.Object({
   customFields: Type.Record(Type.String(), Type.Any()),
 });
 
+const paginationMetaSchema = Type.Object({
+  page: Type.Integer({ minimum: 1 }),
+  limit: Type.Integer({ minimum: 1 }),
+  total: Type.Integer({ minimum: 0 }),
+  totalPages: Type.Integer({ minimum: 0 }),
+});
+
 export const stationListResponseSchema = Type.Object({
   data: Type.Array(stationResponseDataSchema),
+  meta: paginationMetaSchema,
 });
 
 export const stationResponseSchema = Type.Object({

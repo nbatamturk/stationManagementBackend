@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { env } from './config/env';
 import { pool } from './db/client';
 import { authRoutes } from './modules/auth/auth.routes';
+import { auditLogsRoutes } from './modules/audit-logs/audit-logs.routes';
 import { customFieldsRoutes } from './modules/custom-fields/custom-fields.routes';
 import { issuesRoutes } from './modules/issues/issues.routes';
 import { stationsRoutes } from './modules/stations/stations.routes';
@@ -39,6 +40,7 @@ export const buildApp = () => {
   app.register(testHistoryRoutes);
   app.register(issuesRoutes);
   app.register(usersRoutes, { prefix: '/users' });
+  app.register(auditLogsRoutes);
 
   app.addHook('onClose', async () => {
     await pool.end();

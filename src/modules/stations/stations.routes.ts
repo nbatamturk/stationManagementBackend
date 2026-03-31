@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import { paginatedResponse, successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
+import { assertCanWrite } from '../../utils/rbac';
 
 import {
   stationCreateBodySchema,
@@ -27,8 +29,8 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const query = request.query as Record<string, unknown>;
-      const data = await stationsService.list(query);
-      return { data };
+      const result = await stationsService.list(query);
+      return paginatedResponse(result.data, result.meta);
     },
   );
 
@@ -46,14 +48,14 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const params = request.params as { id: string };
       const data = await stationsService.getById(params.id);
-      return { data };
+      return successResponse(data);
     },
   );
 
   fastify.post(
     '/',
     {
-      preHandler: [fastify.authenticate],
+      preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         body: stationCreateBodySchema,
         response: {
@@ -80,14 +82,14 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       const data = await stationsService.create(getCurrentUserId(request), body);
-      return reply.status(201).send({ data });
+      return reply.status(201).send(successResponse(data));
     },
   );
 
   fastify.put(
     '/:id',
     {
-      preHandler: [fastify.authenticate],
+      preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         params: stationIdParamsSchema,
         body: stationUpdateBodySchema,
@@ -116,14 +118,14 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       const data = await stationsService.update(getCurrentUserId(request), params.id, body);
-      return { data };
+      return successResponse(data);
     },
   );
 
   fastify.delete(
     '/:id',
     {
-      preHandler: [fastify.authenticate],
+      preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         params: stationIdParamsSchema,
         response: {
@@ -140,7 +142,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/:id/archive',
     {
-      preHandler: [fastify.authenticate],
+      preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         params: stationIdParamsSchema,
         response: {
@@ -151,7 +153,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       const params = request.params as { id: string };
       const data = await stationsService.archive(getCurrentUserId(request), params.id);
-      return { data };
+      return successResponse(data);
     },
   );
 };
