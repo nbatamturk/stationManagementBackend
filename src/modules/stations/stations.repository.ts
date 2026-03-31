@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, type SQL } from 'drizzle-orm';
 
 import { db } from '../../db/client';
 import { stations } from '../../db/schema';
@@ -18,6 +18,13 @@ export type StationListFilter = {
   sortBy?: StationSortBy;
   sortOrder?: 'asc' | 'desc';
   includeArchived?: boolean;
+  isArchived?: boolean;
+  createdFrom?: Date;
+  createdTo?: Date;
+  updatedFrom?: Date;
+  updatedTo?: Date;
+  powerMin?: number;
+  powerMax?: number;
   customFilteredStationIds?: string[] | null;
 };
 
@@ -25,7 +32,9 @@ export class StationsRepository {
   async list(filters: StationListFilter) {
     const conditions: SQL[] = [];
 
-    if (!filters.includeArchived) {
+    if (filters.isArchived !== undefined) {
+      conditions.push(eq(stations.isArchived, filters.isArchived));
+    } else if (!filters.includeArchived) {
       conditions.push(eq(stations.isArchived, false));
     }
 
@@ -39,6 +48,30 @@ export class StationsRepository {
 
     if (filters.currentType) {
       conditions.push(eq(stations.currentType, filters.currentType));
+    }
+
+    if (filters.createdFrom) {
+      conditions.push(gte(stations.createdAt, filters.createdFrom));
+    }
+
+    if (filters.createdTo) {
+      conditions.push(lte(stations.createdAt, filters.createdTo));
+    }
+
+    if (filters.updatedFrom) {
+      conditions.push(gte(stations.updatedAt, filters.updatedFrom));
+    }
+
+    if (filters.updatedTo) {
+      conditions.push(lte(stations.updatedAt, filters.updatedTo));
+    }
+
+    if (filters.powerMin !== undefined) {
+      conditions.push(gte(stations.powerKw, filters.powerMin.toString()));
+    }
+
+    if (filters.powerMax !== undefined) {
+      conditions.push(lte(stations.powerKw, filters.powerMax.toString()));
     }
 
     if (filters.search) {
@@ -83,7 +116,10 @@ export class StationsRepository {
       .select()
       .from(stations)
       .where(whereClause)
-      .orderBy(orderDirection === 'asc' ? asc(sortColumnMap[sortBy]) : desc(sortColumnMap[sortBy]))
+      .orderBy(
+        orderDirection === 'asc' ? asc(sortColumnMap[sortBy]) : desc(sortColumnMap[sortBy]),
+        orderDirection === 'asc' ? asc(stations.id) : desc(stations.id),
+      )
       .limit(filters.limit)
       .offset((filters.page - 1) * filters.limit);
 

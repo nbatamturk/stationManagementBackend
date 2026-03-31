@@ -1,6 +1,7 @@
 import { hash } from 'bcryptjs';
 
 import type { UserRole } from '../../db/schema';
+import { writeAuditLog } from '../../utils/audit-log';
 import { AppError } from '../../utils/errors';
 
 import { usersRepository, type UsersListFilters, type UsersRepository } from './users.repository';
@@ -49,7 +50,7 @@ export class UsersService {
     return this.toSafeUser(user);
   }
 
-  async create(payload: CreateUserPayload) {
+  async create(actorUserId: string, payload: CreateUserPayload) {
     const normalizedEmail = payload.email.toLowerCase();
     const existingUser = await this.repository.findByEmail(normalizedEmail);
 
@@ -67,10 +68,23 @@ export class UsersService {
       isActive: payload.isActive ?? true,
     });
 
+    await writeAuditLog({
+      actorUserId,
+      entityType: 'user',
+      entityId: created.id,
+      action: 'user.created',
+      metadataJson: {
+        targetUserId: created.id,
+        email: created.email,
+        role: created.role,
+        isActive: created.isActive,
+      },
+    });
+
     return this.toSafeUser(created);
   }
 
-  async update(id: string, payload: UpdateUserPayload) {
+  async update(actorUserId: string, id: string, payload: UpdateUserPayload) {
     const user = await this.repository.findById(id);
 
     if (!user) {
@@ -102,10 +116,21 @@ export class UsersService {
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
+    await writeAuditLog({
+      actorUserId,
+      entityType: 'user',
+      entityId: id,
+      action: 'user.updated',
+      metadataJson: {
+        targetUserId: id,
+        changedFields: Object.keys(payload),
+      },
+    });
+
     return this.toSafeUser(updated);
   }
 
-  async setActive(id: string, isActive: boolean) {
+  async setActive(actorUserId: string, id: string, isActive: boolean) {
     const user = await this.repository.findById(id);
 
     if (!user) {
@@ -117,6 +142,17 @@ export class UsersService {
     if (!updated) {
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
+
+    await writeAuditLog({
+      actorUserId,
+      entityType: 'user',
+      entityId: id,
+      action: isActive ? 'user.activated' : 'user.deactivated',
+      metadataJson: {
+        targetUserId: id,
+        isActive,
+      },
+    });
 
     return this.toSafeUser(updated);
   }

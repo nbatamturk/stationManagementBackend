@@ -1,3 +1,5 @@
+import { AppError } from '../../utils/errors';
+
 import { auditLogsRepository, type AuditLogsRepository } from './audit-logs.repository';
 
 type AuditLogsListQuery = {
@@ -9,6 +11,8 @@ type AuditLogsListQuery = {
   toDate?: string;
   page?: number;
   limit?: number;
+  sortBy?: 'createdAt';
+  sortOrder?: 'asc' | 'desc';
 };
 
 export class AuditLogsService {
@@ -17,6 +21,10 @@ export class AuditLogsService {
   async list(query: AuditLogsListQuery) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+
+    if (query.fromDate && query.toDate && new Date(query.fromDate) > new Date(query.toDate)) {
+      throw new AppError('fromDate must be less than or equal to toDate', 400, 'INVALID_FILTER');
+    }
 
     const { rows, total } = await this.repository.list({
       entityType: query.entityType,
@@ -27,6 +35,8 @@ export class AuditLogsService {
       toDate: query.toDate ? new Date(query.toDate) : undefined,
       page,
       limit,
+      sortBy: query.sortBy ?? 'createdAt',
+      sortOrder: query.sortOrder ?? 'desc',
     });
 
     return {

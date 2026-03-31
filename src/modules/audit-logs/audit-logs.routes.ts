@@ -28,6 +28,8 @@ export const auditLogsRoutes: FastifyPluginAsync = async (fastify) => {
         toDate?: string;
         page?: number;
         limit?: number;
+        sortBy?: 'createdAt';
+        sortOrder?: 'asc' | 'desc';
       };
 
       const result = await auditLogsService.list(query);
