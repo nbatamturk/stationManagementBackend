@@ -8,11 +8,15 @@ declare module '@fastify/jwt' {
       sub: string;
       role: UserRole;
       email: string;
+      typ?: 'access';
+      sessionVersion?: 1;
     };
     user: {
       sub: string;
       role: UserRole;
       email: string;
+      typ?: 'access';
+      sessionVersion?: 1;
     };
   }
 }

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import { successResponse } from '../../utils/api-response';
+import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { requireRoles } from '../../utils/rbac';
 
 import {
@@ -22,8 +23,12 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: authz,
       schema: {
+        tags: ['Dashboard'],
+        summary: 'Get dashboard summary metrics',
+        security: bearerAuthSecurity,
         response: {
           200: dashboardSummaryResponseSchema,
+          ...pickErrorResponseSchemas(401, 403, 500),
         },
       },
     },
@@ -38,9 +43,13 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: authz,
       schema: {
+        tags: ['Dashboard'],
+        summary: 'List recently updated stations',
+        security: bearerAuthSecurity,
         querystring: dashboardRecentStationsQuerySchema,
         response: {
           200: dashboardRecentStationsResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 500),
         },
       },
     },
@@ -56,9 +65,13 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: authz,
       schema: {
+        tags: ['Dashboard'],
+        summary: 'List recent issues',
+        security: bearerAuthSecurity,
         querystring: dashboardRecentIssuesQuerySchema,
         response: {
           200: dashboardRecentIssuesResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 500),
         },
       },
     },
@@ -74,9 +87,13 @@ export const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: authz,
       schema: {
+        tags: ['Dashboard'],
+        summary: 'List recent tests',
+        security: bearerAuthSecurity,
         querystring: dashboardRecentTestsQuerySchema,
         response: {
           200: dashboardRecentTestsResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 500),
         },
       },
     },

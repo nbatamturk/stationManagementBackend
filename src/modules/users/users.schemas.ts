@@ -1,18 +1,28 @@
 import { Type } from '@sinclair/typebox';
 
+import {
+  createPaginatedResponseSchema,
+  createSuccessResponseSchema,
+  isoDateTimeSchema,
+  uuidSchema,
+} from '../../utils/api-schemas';
+
 const userRoleSchema = Type.Union([Type.Literal('admin'), Type.Literal('operator'), Type.Literal('viewer')]);
 
-export const userIdParamsSchema = Type.Object({
-  id: Type.String({ format: 'uuid' }),
-});
+export const userIdParamsSchema = Type.Object(
+  {
+    id: uuidSchema,
+  },
+  { additionalProperties: false },
+);
 
 export const usersListQuerySchema = Type.Object(
   {
-    page: Type.Optional(Type.Integer({ minimum: 1 })),
+    page: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     role: Type.Optional(userRoleSchema),
     isActive: Type.Optional(Type.Boolean()),
-    search: Type.Optional(Type.String({ minLength: 1 })),
+    search: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
   },
   { additionalProperties: false },
 );
@@ -45,28 +55,19 @@ export const userActivePatchBodySchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const safeUserSchema = Type.Object({
-  id: Type.String({ format: 'uuid' }),
-  email: Type.String({ format: 'email' }),
-  fullName: Type.String(),
-  role: userRoleSchema,
-  isActive: Type.Boolean(),
-  createdAt: Type.String({ format: 'date-time' }),
-  updatedAt: Type.String({ format: 'date-time' }),
-});
+export const safeUserSchema = Type.Object(
+  {
+    id: uuidSchema,
+    email: Type.String({ format: 'email' }),
+    fullName: Type.String(),
+    role: userRoleSchema,
+    isActive: Type.Boolean(),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+  },
+  { additionalProperties: false },
+);
 
-const paginationMetaSchema = Type.Object({
-  page: Type.Integer({ minimum: 1 }),
-  limit: Type.Integer({ minimum: 1 }),
-  total: Type.Integer({ minimum: 0 }),
-  totalPages: Type.Integer({ minimum: 0 }),
-});
+export const usersListResponseSchema = createPaginatedResponseSchema(safeUserSchema);
 
-export const usersListResponseSchema = Type.Object({
-  data: Type.Array(safeUserSchema),
-  meta: paginationMetaSchema,
-});
-
-export const userResponseSchema = Type.Object({
-  data: safeUserSchema,
-});
+export const userResponseSchema = createSuccessResponseSchema(safeUserSchema);

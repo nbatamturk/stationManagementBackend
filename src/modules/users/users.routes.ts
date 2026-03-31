@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
+import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { requireRoles } from '../../utils/rbac';
 
 import {
@@ -21,9 +22,13 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
+        tags: ['Users'],
+        summary: 'List users',
+        security: bearerAuthSecurity,
         querystring: usersListQuerySchema,
         response: {
           200: usersListResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 500),
         },
       },
     },
@@ -51,9 +56,13 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
+        tags: ['Users'],
+        summary: 'Get a user by id',
+        security: bearerAuthSecurity,
         params: userIdParamsSchema,
         response: {
           200: userResponseSchema,
+          ...pickErrorResponseSchemas(401, 403, 404, 500),
         },
       },
     },
@@ -69,9 +78,13 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
+        tags: ['Users'],
+        summary: 'Create a user',
+        security: bearerAuthSecurity,
         body: userCreateBodySchema,
         response: {
           201: userResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 409, 500),
         },
       },
     },
@@ -94,10 +107,14 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
+        tags: ['Users'],
+        summary: 'Update a user',
+        security: bearerAuthSecurity,
         params: userIdParamsSchema,
         body: userUpdateBodySchema,
         response: {
           200: userResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 409, 500),
         },
       },
     },
@@ -120,10 +137,14 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
+        tags: ['Users'],
+        summary: 'Set user active state',
+        security: bearerAuthSecurity,
         params: userIdParamsSchema,
         body: userActivePatchBodySchema,
         response: {
           200: userResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },

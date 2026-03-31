@@ -3,6 +3,11 @@ import { hash } from 'bcryptjs';
 import type { UserRole } from '../../db/schema';
 import { writeAuditLog } from '../../utils/audit-log';
 import { AppError } from '../../utils/errors';
+import {
+  normalizeEmail,
+  normalizeOptionalSingleLineText,
+  normalizeRequiredSingleLineText,
+} from '../../utils/input';
 
 import { usersRepository, type UsersListFilters, type UsersRepository } from './users.repository';
 
@@ -27,15 +32,22 @@ export class UsersService {
   constructor(private readonly repository: UsersRepository = usersRepository) {}
 
   async list(filters: UsersListFilters) {
-    const { rows, total } = await this.repository.list(filters);
+    const normalizedFilters: UsersListFilters = {
+      ...filters,
+      search: normalizeOptionalSingleLineText(filters.search, 'Search', {
+        maxLength: 120,
+      }) ?? undefined,
+    };
+
+    const { rows, total } = await this.repository.list(normalizedFilters);
 
     return {
       data: rows.map((row) => this.toSafeUser(row)),
       meta: {
-        page: filters.page,
-        limit: filters.limit,
+        page: normalizedFilters.page,
+        limit: normalizedFilters.limit,
         total,
-        totalPages: total === 0 ? 0 : Math.ceil(total / filters.limit),
+        totalPages: total === 0 ? 0 : Math.ceil(total / normalizedFilters.limit),
       },
     };
   }
@@ -51,7 +63,11 @@ export class UsersService {
   }
 
   async create(actorUserId: string, payload: CreateUserPayload) {
-    const normalizedEmail = payload.email.toLowerCase();
+    const normalizedEmail = normalizeEmail(payload.email);
+    const normalizedFullName = normalizeRequiredSingleLineText(payload.fullName, 'Full name', {
+      maxLength: 150,
+      minLength: 2,
+    });
     const existingUser = await this.repository.findByEmail(normalizedEmail);
 
     if (existingUser) {
@@ -62,7 +78,7 @@ export class UsersService {
 
     const created = await this.repository.create({
       email: normalizedEmail,
-      fullName: payload.fullName,
+      fullName: normalizedFullName,
       passwordHash,
       role: payload.role ?? 'operator',
       isActive: payload.isActive ?? true,
@@ -91,25 +107,38 @@ export class UsersService {
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
-    if (Object.keys(payload).length === 0) {
+    const normalizedPayload = {
+      email: payload.email ? normalizeEmail(payload.email) : undefined,
+      fullName:
+        normalizeOptionalSingleLineText(payload.fullName, 'Full name', {
+          maxLength: 150,
+          minLength: 2,
+        }) ?? undefined,
+      password: payload.password,
+      role: payload.role,
+    };
+
+    if (Object.values(normalizedPayload).every((value) => value === undefined)) {
       return this.toSafeUser(user);
     }
 
-    if (payload.email) {
-      const duplicate = await this.repository.findByEmailExcludingId(payload.email, id);
+    if (normalizedPayload.email) {
+      const duplicate = await this.repository.findByEmailExcludingId(normalizedPayload.email, id);
 
       if (duplicate) {
         throw new AppError('Email already exists', 409, 'USER_EMAIL_EXISTS');
       }
     }
 
-    const passwordHash = payload.password ? await hash(payload.password, PASSWORD_SALT_ROUNDS) : undefined;
+    const passwordHash = normalizedPayload.password
+      ? await hash(normalizedPayload.password, PASSWORD_SALT_ROUNDS)
+      : undefined;
 
     const updated = await this.repository.updateById(id, {
-      email: payload.email?.toLowerCase(),
-      fullName: payload.fullName,
+      email: normalizedPayload.email,
+      fullName: normalizedPayload.fullName,
       passwordHash,
-      role: payload.role,
+      role: normalizedPayload.role,
     });
 
     if (!updated) {
@@ -123,7 +152,9 @@ export class UsersService {
       action: 'user.updated',
       metadataJson: {
         targetUserId: id,
-        changedFields: Object.keys(payload),
+        changedFields: Object.entries(normalizedPayload)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key),
       },
     });
 

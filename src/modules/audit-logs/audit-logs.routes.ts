@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import { paginatedResponse } from '../../utils/api-response';
+import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { requireRoles } from '../../utils/rbac';
 
 import { auditLogsListQuerySchema, auditLogsListResponseSchema } from './audit-logs.schemas';
@@ -12,9 +13,13 @@ export const auditLogsRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
+        tags: ['Audit Logs'],
+        summary: 'List audit logs',
+        security: bearerAuthSecurity,
         querystring: auditLogsListQuerySchema,
         response: {
           200: auditLogsListResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 500),
         },
       },
     },

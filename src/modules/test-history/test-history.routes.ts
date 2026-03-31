@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
+import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { assertCanWrite } from '../../utils/rbac';
 
 import {
@@ -21,9 +22,13 @@ export const testHistoryRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate],
       schema: {
+        tags: ['Test History'],
+        summary: 'List station test history',
+        security: bearerAuthSecurity,
         params: testHistoryStationParamsSchema,
         response: {
           200: testHistoryListResponseSchema,
+          ...pickErrorResponseSchemas(401, 404, 500),
         },
       },
     },
@@ -39,10 +44,14 @@ export const testHistoryRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Test History'],
+        summary: 'Create a station test history record',
+        security: bearerAuthSecurity,
         params: testHistoryStationParamsSchema,
         body: testHistoryCreateBodySchema,
         response: {
           201: testHistoryResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },
@@ -65,10 +74,14 @@ export const testHistoryRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Test History'],
+        summary: 'Update a test history record',
+        security: bearerAuthSecurity,
         params: testHistoryIdParamsSchema,
         body: testHistoryUpdateBodySchema,
         response: {
           200: testHistoryResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },
@@ -91,15 +104,20 @@ export const testHistoryRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Test History'],
+        summary: 'Delete a test history record',
+        security: bearerAuthSecurity,
         params: testHistoryIdParamsSchema,
         response: {
           200: testHistoryDeleteResponseSchema,
+          ...pickErrorResponseSchemas(401, 403, 404, 500),
         },
       },
     },
     async (request) => {
       const params = request.params as { id: string };
-      return testHistoryService.delete(getCurrentUserId(request), params.id);
+      const data = await testHistoryService.delete(getCurrentUserId(request), params.id);
+      return successResponse(data);
     },
   );
 };

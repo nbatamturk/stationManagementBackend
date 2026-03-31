@@ -1,4 +1,4 @@
-# Station Management Backend (Phase 1)
+# Station Management Backend
 
 A centralized backend service for managing EV test stations used by a mobile application.
 
@@ -9,10 +9,11 @@ A centralized backend service for managing EV test stations used by a mobile app
 - [Getting Started](#getting-started)
 - [Environment Variables](#environment-variables)
 - [Available Scripts](#available-scripts)
-- [API Endpoints (Phase 1)](#api-endpoints-phase-1)
+- [API Endpoints](#api-endpoints)
 - [Station Filtering](#station-filtering)
+- [Station CSV Import Export](#station-csv-import-export)
 - [Seed Accounts](#seed-accounts)
-- [Roadmap (Phase 2 Suggestions)](#roadmap-phase-2-suggestions)
+- [Roadmap](#roadmap)
 
 ## Overview
 This project provides a modular backend to:
@@ -119,7 +120,7 @@ Required core variables:
 - `npm run seed` — Seed sample data
 - `npm run db:setup` — Run migrations + seed
 
-## API Endpoints (Phase 1)
+## API Endpoints
 
 ### Auth
 - `POST /auth/login`
@@ -148,6 +149,11 @@ Required core variables:
 - `POST /stations/:id/issues`
 - `PATCH /issues/:id/status`
 
+### Station CSV Import/Export
+- `GET /exports/stations.csv`
+- `POST /imports/stations/preview`
+- `POST /imports/stations/apply`
+
 ## Station Filtering
 Supported filters for `GET /stations`:
 - `search`
@@ -162,12 +168,53 @@ Example:
 GET /stations?status=active&cf.firmware_version=v3
 ```
 
+## Station CSV Import Export
+
+### Export
+- `GET /exports/stations.csv`
+- Admin-only
+- Uses the station list filter model, including `cf.<key>` filters where applicable
+- Exports fixed station columns plus flat custom-field columns using the `cf.<key>` convention
+- Always exports all matching rows; `page` and `limit` are ignored for the CSV file
+
+### Preview
+- `POST /imports/stations/preview`
+- Admin-only
+- Accepts `multipart/form-data` with a single CSV file field
+- Parses rows and returns a structured preview with valid rows, invalid rows, duplicate risks, unknown columns/custom fields, and apply-ready candidates
+- Does not persist station data
+
+### Apply
+- `POST /imports/stations/apply`
+- Admin-only
+- Accepts JSON payload built from preview `candidate` rows
+- Uses `code` as the import match key
+- Behavior is `upsert`:
+  - matching `code` updates the station
+  - missing `code` creates a new station
+- `qrCode` and `serialNumber` must remain unique; conflicts are returned as failed rows
+- Rows with no effective changes are skipped
+- Valid create/update rows are applied transactionally
+
+### CSV Column Rules
+- Required base columns: `name`, `code`, `qrCode`, `brand`, `model`, `serialNumber`, `powerKw`, `currentType`, `socketType`, `location`
+- Optional base columns: `status`, `isArchived`, `lastTestDate`, `notes`
+- Accepted read-only columns: `archivedAt`, `createdAt`, `updatedAt`
+- Custom field columns must use `cf.<key>`
+- Unknown non-custom columns fail preview
+- Unknown custom-field columns are reported and fail rows that contain values for them
+
+### Notes
+- Exported CSV is designed to round-trip through preview/apply with the current import rules
+- Apply revalidates rows, so preview output should be treated as a draft until apply succeeds
+- Blank optional values are treated as omitted; this phase does not support clearing existing values through CSV import
+
 ## Seed Accounts
 - `admin@evlab.local` / `Admin123!`
 - `operator@evlab.local` / `Operator123!`
 
-## Roadmap (Phase 2 Suggestions)
-- Role-based access control (RBAC)
-- Pagination + total count metadata
+## Roadmap
 - Unit + integration test coverage
 - API documentation (OpenAPI/Swagger)
+- Background import jobs for large files
+- Import templates and richer per-field remediation UX

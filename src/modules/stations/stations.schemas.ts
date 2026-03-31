@@ -1,5 +1,13 @@
 import { Type } from '@sinclair/typebox';
 
+import {
+  createPaginatedResponseSchema,
+  createSuccessResponseSchema,
+  deleteResultDataSchema,
+  isoDateTimeSchema,
+  uuidSchema,
+} from '../../utils/api-schemas';
+
 const stationStatusSchema = Type.Union([
   Type.Literal('active'),
   Type.Literal('maintenance'),
@@ -19,11 +27,76 @@ const socketTypeSchema = Type.Union([
   Type.Literal('Other'),
 ]);
 
+const stationViewSchema = Type.Union([Type.Literal('full'), Type.Literal('compact')]);
+
+const testResultSchema = Type.Union([Type.Literal('pass'), Type.Literal('fail'), Type.Literal('warning')]);
+
+const stationSyncConflictFieldSchema = Type.Union([
+  Type.Literal('status'),
+  Type.Literal('location'),
+  Type.Literal('lastTestDate'),
+  Type.Literal('notes'),
+  Type.Literal('customFields'),
+  Type.Literal('attachments'),
+  Type.Literal('issues'),
+]);
+
+const stationSyncSchema = Type.Object(
+  {
+    updatedAt: isoDateTimeSchema,
+    archived: Type.Boolean(),
+    archivedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
+    deleted: Type.Boolean(),
+    deletedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
+    deleteMode: Type.Literal('hard_delete'),
+    conflictFields: Type.Optional(Type.Array(stationSyncConflictFieldSchema, { minItems: 1, maxItems: 7 })),
+  },
+  { additionalProperties: false },
+);
+
+const stationMobileSummarySchema = Type.Object(
+  {
+    totalIssueCount: Type.Integer({ minimum: 0 }),
+    openIssueCount: Type.Integer({ minimum: 0 }),
+    hasOpenIssues: Type.Boolean(),
+    attachmentCount: Type.Integer({ minimum: 0 }),
+    testHistoryCount: Type.Integer({ minimum: 0 }),
+    latestTestResult: Type.Union([testResultSchema, Type.Null()]),
+  },
+  { additionalProperties: false },
+);
+
+const stationCommonProperties = {
+  id: uuidSchema,
+  name: Type.String(),
+  code: Type.String(),
+  qrCode: Type.String(),
+  brand: Type.String(),
+  model: Type.String(),
+  powerKw: Type.Number(),
+  currentType: currentTypeSchema,
+  socketType: socketTypeSchema,
+  location: Type.String(),
+  status: stationStatusSchema,
+  lastTestDate: Type.Union([isoDateTimeSchema, Type.Null()]),
+  isArchived: Type.Boolean(),
+  archivedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
+  updatedAt: isoDateTimeSchema,
+} as const;
+
 export const stationListQuerySchema = Type.Object(
   {
-    search: Type.Optional(Type.String({ minLength: 1 })),
+    search: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    code: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
+    qrCode: Type.Optional(Type.String({ minLength: 1, maxLength: 150 })),
+    ids: Type.Optional(
+      Type.Union([
+        Type.String({ minLength: 36, maxLength: 4000 }),
+        Type.Array(uuidSchema, { minItems: 1, maxItems: 100 }),
+      ]),
+    ),
     status: Type.Optional(stationStatusSchema),
-    brand: Type.Optional(Type.String()),
+    brand: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     currentType: Type.Optional(currentTypeSchema),
     sortBy: Type.Optional(
       Type.Union([
@@ -37,23 +110,37 @@ export const stationListQuerySchema = Type.Object(
     sortOrder: Type.Optional(Type.Union([Type.Literal('asc'), Type.Literal('desc')])),
     includeArchived: Type.Optional(Type.Boolean()),
     isArchived: Type.Optional(Type.Boolean()),
-    createdFrom: Type.Optional(Type.String({ format: 'date-time' })),
-    createdTo: Type.Optional(Type.String({ format: 'date-time' })),
-    updatedFrom: Type.Optional(Type.String({ format: 'date-time' })),
-    updatedTo: Type.Optional(Type.String({ format: 'date-time' })),
+    createdFrom: Type.Optional(isoDateTimeSchema),
+    createdTo: Type.Optional(isoDateTimeSchema),
+    updatedSince: Type.Optional(isoDateTimeSchema),
+    updatedFrom: Type.Optional(isoDateTimeSchema),
+    updatedTo: Type.Optional(isoDateTimeSchema),
     powerMin: Type.Optional(Type.Number({ minimum: 0 })),
     powerMax: Type.Optional(Type.Number({ minimum: 0 })),
-    page: Type.Optional(Type.Integer({ minimum: 1 })),
+    page: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    view: Type.Optional(stationViewSchema),
   },
   {
     additionalProperties: true,
+    description:
+      'Station list filters. Use `view=compact` for mobile-friendly list items. Dynamic custom-field filters use the `cf.<key>=<value>` convention.',
   },
 );
 
-export const stationIdParamsSchema = Type.Object({
-  id: Type.String({ format: 'uuid' }),
-});
+export const stationIdParamsSchema = Type.Object(
+  {
+    id: uuidSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const stationQrLookupParamsSchema = Type.Object(
+  {
+    value: Type.String({ minLength: 1, maxLength: 150 }),
+  },
+  { additionalProperties: false },
+);
 
 export const stationCreateBodySchema = Type.Object(
   {
@@ -66,10 +153,10 @@ export const stationCreateBodySchema = Type.Object(
     powerKw: Type.Number({ minimum: 0 }),
     currentType: currentTypeSchema,
     socketType: socketTypeSchema,
-    location: Type.String({ minLength: 2 }),
+    location: Type.String({ minLength: 2, maxLength: 500 }),
     status: Type.Optional(stationStatusSchema),
-    lastTestDate: Type.Optional(Type.String({ format: 'date-time' })),
-    notes: Type.Optional(Type.String()),
+    lastTestDate: Type.Optional(isoDateTimeSchema),
+    notes: Type.Optional(Type.String({ maxLength: 2000 })),
     customFields: Type.Optional(Type.Record(Type.String(), Type.Any())),
   },
   { additionalProperties: false },
@@ -77,45 +164,45 @@ export const stationCreateBodySchema = Type.Object(
 
 export const stationUpdateBodySchema = Type.Partial(stationCreateBodySchema);
 
-export const stationResponseDataSchema = Type.Object({
-  id: Type.String({ format: 'uuid' }),
-  name: Type.String(),
-  code: Type.String(),
-  qrCode: Type.String(),
-  brand: Type.String(),
-  model: Type.String(),
+const stationSummaryProperties = {
+  ...stationCommonProperties,
   serialNumber: Type.String(),
-  powerKw: Type.Number(),
-  currentType: currentTypeSchema,
-  socketType: socketTypeSchema,
-  location: Type.String(),
-  status: stationStatusSchema,
-  lastTestDate: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
-  notes: Type.Union([Type.String(), Type.Null()]),
-  isArchived: Type.Boolean(),
-  archivedAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
-  createdAt: Type.String({ format: 'date-time' }),
-  updatedAt: Type.String({ format: 'date-time' }),
-  customFields: Type.Record(Type.String(), Type.Any()),
-});
+  summary: stationMobileSummarySchema,
+  sync: stationSyncSchema,
+} as const;
 
-const paginationMetaSchema = Type.Object({
-  page: Type.Integer({ minimum: 1 }),
-  limit: Type.Integer({ minimum: 1 }),
-  total: Type.Integer({ minimum: 0 }),
-  totalPages: Type.Integer({ minimum: 0 }),
-});
+export const stationSummaryDataSchema = Type.Object(stationSummaryProperties, { additionalProperties: false });
 
-export const stationListResponseSchema = Type.Object({
-  data: Type.Array(stationResponseDataSchema),
-  meta: paginationMetaSchema,
-});
+export const stationResponseDataSchema = Type.Object(
+  {
+    ...stationSummaryProperties,
+    notes: Type.Union([Type.String(), Type.Null()]),
+    createdAt: isoDateTimeSchema,
+    customFields: Type.Record(Type.String(), Type.Any()),
+  },
+  { additionalProperties: false },
+);
 
-export const stationResponseSchema = Type.Object({
-  data: stationResponseDataSchema,
-});
+export const stationListItemSchema = Type.Object(
+  {
+    ...stationCommonProperties,
+    serialNumber: Type.Optional(Type.String()),
+    notes: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    createdAt: Type.Optional(isoDateTimeSchema),
+    customFields: Type.Optional(Type.Record(Type.String(), Type.Any())),
+    summary: Type.Optional(stationMobileSummarySchema),
+    sync: Type.Optional(stationSyncSchema),
+  },
+  {
+    additionalProperties: false,
+    description: 'Default list items include full station fields. `view=compact` returns the mobile-focused subset with `summary` and `sync`.',
+  },
+);
 
-export const stationDeleteResponseSchema = Type.Object({
-  success: Type.Boolean(),
-  id: Type.String({ format: 'uuid' }),
-});
+export const stationListResponseSchema = createPaginatedResponseSchema(stationListItemSchema);
+
+export const stationResponseSchema = createSuccessResponseSchema(stationResponseDataSchema);
+
+export const stationSummaryResponseSchema = createSuccessResponseSchema(stationSummaryDataSchema);
+
+export const stationDeleteResponseSchema = createSuccessResponseSchema(deleteResultDataSchema);

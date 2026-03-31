@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
+import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { assertCanWrite } from '../../utils/rbac';
 
 import {
@@ -22,9 +23,13 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate],
       schema: {
+        tags: ['Issues'],
+        summary: 'List station issues',
+        security: bearerAuthSecurity,
         params: issueStationParamsSchema,
         response: {
           200: issueListResponseSchema,
+          ...pickErrorResponseSchemas(401, 404, 500),
         },
       },
     },
@@ -40,10 +45,14 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Issues'],
+        summary: 'Create a station issue',
+        security: bearerAuthSecurity,
         params: issueStationParamsSchema,
         body: issueCreateBodySchema,
         response: {
           201: issueResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },
@@ -66,9 +75,13 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate],
       schema: {
+        tags: ['Issues'],
+        summary: 'Get an issue by id',
+        security: bearerAuthSecurity,
         params: issueIdParamsSchema,
         response: {
           200: issueResponseSchema,
+          ...pickErrorResponseSchemas(401, 404, 500),
         },
       },
     },
@@ -84,10 +97,14 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Issues'],
+        summary: 'Update an issue',
+        security: bearerAuthSecurity,
         params: issueIdParamsSchema,
         body: issueUpdateBodySchema,
         response: {
           200: issueResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },
@@ -111,10 +128,14 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Issues'],
+        summary: 'Update issue status',
+        security: bearerAuthSecurity,
         params: issueIdParamsSchema,
         body: issueStatusPatchBodySchema,
         response: {
           200: issueResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },
@@ -132,15 +153,20 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Issues'],
+        summary: 'Delete an issue',
+        security: bearerAuthSecurity,
         params: issueIdParamsSchema,
         response: {
           200: issueDeleteResponseSchema,
+          ...pickErrorResponseSchemas(401, 403, 404, 500),
         },
       },
     },
     async (request) => {
       const params = request.params as { id: string };
-      return issuesService.delete(getCurrentUserId(request), params.id);
+      const data = await issuesService.delete(getCurrentUserId(request), params.id);
+      return successResponse(data);
     },
   );
 };

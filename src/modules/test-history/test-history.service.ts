@@ -4,7 +4,9 @@ import { db } from '../../db/client';
 import { stations } from '../../db/schema';
 import { writeAuditLog } from '../../utils/audit-log';
 import { AppError } from '../../utils/errors';
+import { normalizeOptionalMultilineText } from '../../utils/input';
 
+import { attachmentsService } from '../attachments/attachments.service';
 import { stationsService, type StationsService } from '../stations/stations.service';
 import { testHistoryRepository, type TestHistoryRepository } from './test-history.repository';
 
@@ -40,6 +42,9 @@ export class TestHistoryService {
 
   async create(userId: string, stationId: string, payload: TestHistoryPayload) {
     await this.stationService.ensureExists(stationId);
+    const normalizedNotes = normalizeOptionalMultilineText(payload.notes, 'Test notes', {
+      maxLength: 2000,
+    });
 
     const testDate = payload.testDate ? new Date(payload.testDate) : new Date();
 
@@ -49,14 +54,17 @@ export class TestHistoryService {
           stationId,
           testDate,
           result: payload.result,
-          notes: payload.notes,
+          notes: normalizedNotes,
           metricsJson: payload.metricsJson ?? {},
           testedBy: userId,
         },
         tx,
       );
 
-      await tx.update(stations).set({ lastTestDate: testDate, updatedAt: new Date() }).where(eq(stations.id, stationId));
+      await tx
+        .update(stations)
+        .set({ lastTestDate: testDate, updatedAt: new Date(), updatedBy: userId })
+        .where(eq(stations.id, stationId));
 
       await writeAuditLog(
         {
@@ -88,13 +96,18 @@ export class TestHistoryService {
       throw new AppError('Test history record not found', 404, 'TEST_HISTORY_NOT_FOUND');
     }
 
+    const normalizedNotes = normalizeOptionalMultilineText(payload.notes, 'Test notes', {
+      emptyAs: 'null',
+      maxLength: 2000,
+    });
+
     const updated = await db.transaction(async (tx) => {
       const record = await this.repository.updateById(
         id,
         {
           testDate: payload.testDate ? new Date(payload.testDate) : undefined,
           result: payload.result,
-          notes: payload.notes,
+          notes: normalizedNotes,
           metricsJson: payload.metricsJson,
         },
         tx,
@@ -105,7 +118,10 @@ export class TestHistoryService {
       }
 
       const latest = await this.repository.getLatestTestDateByStation(existing.stationId, tx);
-      await tx.update(stations).set({ lastTestDate: latest, updatedAt: new Date() }).where(eq(stations.id, existing.stationId));
+      await tx
+        .update(stations)
+        .set({ lastTestDate: latest, updatedAt: new Date(), updatedBy: userId })
+        .where(eq(stations.id, existing.stationId));
 
       await writeAuditLog(
         {
@@ -136,7 +152,8 @@ export class TestHistoryService {
       throw new AppError('Test history record not found', 404, 'TEST_HISTORY_NOT_FOUND');
     }
 
-    await db.transaction(async (tx) => {
+    const deletedAttachments = await db.transaction(async (tx) => {
+      const removedAttachments = await attachmentsService.deleteByTestHistoryId(userId, id, tx);
       const deleted = await this.repository.deleteById(id, tx);
 
       if (!deleted) {
@@ -144,7 +161,10 @@ export class TestHistoryService {
       }
 
       const latest = await this.repository.getLatestTestDateByStation(existing.stationId, tx);
-      await tx.update(stations).set({ lastTestDate: latest, updatedAt: new Date() }).where(eq(stations.id, existing.stationId));
+      await tx
+        .update(stations)
+        .set({ lastTestDate: latest, updatedAt: new Date(), updatedBy: userId })
+        .where(eq(stations.id, existing.stationId));
 
       await writeAuditLog(
         {
@@ -158,7 +178,11 @@ export class TestHistoryService {
         },
         tx,
       );
+
+      return removedAttachments;
     });
+
+    await attachmentsService.cleanupStoredFiles(deletedAttachments);
 
     return {
       success: true,

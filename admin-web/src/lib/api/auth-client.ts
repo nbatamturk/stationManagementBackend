@@ -3,6 +3,7 @@ import { SuccessResponse, User } from '@/types/api';
 
 export interface LoginResponse { accessToken: string; tokenType: 'Bearer'; expiresIn: string; user: User }
 export const authClient = {
-  login: (email: string, password: string) => apiFetch<LoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }, false),
-  me: () => apiFetch<{ user: User }>('/auth/me'),
+  login: async (email: string, password: string) =>
+    (await apiFetch<SuccessResponse<LoginResponse>>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }, false)).data,
+  me: async () => (await apiFetch<SuccessResponse<{ user: User }>>('/auth/me')).data,
 };

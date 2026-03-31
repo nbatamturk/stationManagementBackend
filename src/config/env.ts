@@ -1,11 +1,15 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
+const booleanishSchema = z.enum(['true', 'false', '1', '0']);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().default('0.0.0.0'),
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  TRUST_PROXY: booleanishSchema.default('false').transform((value) => value === 'true' || value === '1'),
+  JSON_BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1024 * 1024),
   DATABASE_URL: z
     .string()
     .min(1)
@@ -25,6 +29,11 @@ const envSchema = z.object({
     ),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('1d'),
+  LOGIN_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  LOGIN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1_000).default(15 * 60 * 1_000),
+  LOGIN_RATE_LIMIT_BLOCK_MS: z.coerce.number().int().min(1_000).default(15 * 60 * 1_000),
+  UPLOADS_DIR: z.string().min(1).default('uploads'),
+  ATTACHMENTS_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 });
 
 const parsed = envSchema.safeParse(process.env);

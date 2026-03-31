@@ -1,5 +1,7 @@
 import { Type } from '@sinclair/typebox';
 
+import { createSuccessResponseSchema, isoDateTimeSchema, uuidSchema } from '../../utils/api-schemas';
+
 const dashboardSummarySchema = Type.Object({
   totalStations: Type.Integer({ minimum: 0 }),
   activeStations: Type.Integer({ minimum: 0 }),
@@ -18,50 +20,51 @@ const recentQuerySchema = Type.Object(
   { additionalProperties: false },
 );
 
-const recentStationSchema = Type.Object({
-  id: Type.String({ format: 'uuid' }),
-  name: Type.String(),
-  code: Type.String(),
-  status: Type.String(),
-  isArchived: Type.Boolean(),
-  updatedAt: Type.String({ format: 'date-time' }),
-});
+const recentStationSchema = Type.Object(
+  {
+    id: uuidSchema,
+    name: Type.String(),
+    code: Type.String(),
+    status: Type.String(),
+    isArchived: Type.Boolean(),
+    updatedAt: isoDateTimeSchema,
+  },
+  { additionalProperties: false },
+);
 
-const recentIssueSchema = Type.Object({
-  id: Type.String({ format: 'uuid' }),
-  stationId: Type.String({ format: 'uuid' }),
-  stationName: Type.String(),
-  title: Type.String(),
-  severity: Type.String(),
-  status: Type.String(),
-  createdAt: Type.String({ format: 'date-time' }),
-});
+const recentIssueSchema = Type.Object(
+  {
+    id: uuidSchema,
+    stationId: uuidSchema,
+    stationName: Type.String(),
+    title: Type.String(),
+    severity: Type.String(),
+    status: Type.String(),
+    createdAt: isoDateTimeSchema,
+  },
+  { additionalProperties: false },
+);
 
-const recentTestSchema = Type.Object({
-  id: Type.String({ format: 'uuid' }),
-  stationId: Type.String({ format: 'uuid' }),
-  stationName: Type.String(),
-  result: Type.String(),
-  testDate: Type.String({ format: 'date-time' }),
-  createdAt: Type.String({ format: 'date-time' }),
-});
+const recentTestSchema = Type.Object(
+  {
+    id: uuidSchema,
+    stationId: uuidSchema,
+    stationName: Type.String(),
+    result: Type.String(),
+    testDate: isoDateTimeSchema,
+    createdAt: isoDateTimeSchema,
+  },
+  { additionalProperties: false },
+);
 
-export const dashboardSummaryResponseSchema = Type.Object({
-  data: dashboardSummarySchema,
-});
+export const dashboardSummaryResponseSchema = createSuccessResponseSchema(dashboardSummarySchema);
 
 export const dashboardRecentStationsQuerySchema = recentQuerySchema;
 export const dashboardRecentIssuesQuerySchema = recentQuerySchema;
 export const dashboardRecentTestsQuerySchema = recentQuerySchema;
 
-export const dashboardRecentStationsResponseSchema = Type.Object({
-  data: Type.Array(recentStationSchema),
-});
+export const dashboardRecentStationsResponseSchema = createSuccessResponseSchema(Type.Array(recentStationSchema));
 
-export const dashboardRecentIssuesResponseSchema = Type.Object({
-  data: Type.Array(recentIssueSchema),
-});
+export const dashboardRecentIssuesResponseSchema = createSuccessResponseSchema(Type.Array(recentIssueSchema));
 
-export const dashboardRecentTestsResponseSchema = Type.Object({
-  data: Type.Array(recentTestSchema),
-});
+export const dashboardRecentTestsResponseSchema = createSuccessResponseSchema(Type.Array(recentTestSchema));

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
+import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { assertCanWrite } from '../../utils/rbac';
 
 import {
@@ -21,15 +22,20 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate],
       schema: {
+        tags: ['Custom Fields'],
+        summary: 'List custom field definitions',
+        description: 'Use `isActive` as the canonical filter name. The deprecated `active` alias is still accepted for backward compatibility.',
+        security: bearerAuthSecurity,
         querystring: customFieldListQuerySchema,
         response: {
           200: customFieldListResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 500),
         },
       },
     },
     async (request) => {
-      const query = request.query as { active?: boolean };
-      const data = await customFieldsService.list(query.active);
+      const query = request.query as { active?: boolean; isActive?: boolean };
+      const data = await customFieldsService.list(query.isActive ?? query.active);
       return successResponse(data);
     },
   );
@@ -39,9 +45,13 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Custom Fields'],
+        summary: 'Create a custom field definition',
+        security: bearerAuthSecurity,
         body: customFieldCreateBodySchema,
         response: {
           201: customFieldResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 409, 500),
         },
       },
     },
@@ -68,10 +78,14 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Custom Fields'],
+        summary: 'Update a custom field definition',
+        security: bearerAuthSecurity,
         params: customFieldIdParamsSchema,
         body: customFieldUpdateBodySchema,
         response: {
           200: customFieldResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },
@@ -97,10 +111,14 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
     {
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
+        tags: ['Custom Fields'],
+        summary: 'Set custom field active state',
+        security: bearerAuthSecurity,
         params: customFieldIdParamsSchema,
         body: customFieldSetActiveBodySchema,
         response: {
           200: customFieldResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
         },
       },
     },

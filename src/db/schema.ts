@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -169,6 +171,36 @@ export const stationIssueRecords = pgTable(
     stationIssueRecordsStationIdx: index('station_issue_records_station_id_idx').on(table.stationId),
     stationIssueRecordsStatusIdx: index('station_issue_records_status_idx').on(table.status),
     stationIssueRecordsSeverityIdx: index('station_issue_records_severity_idx').on(table.severity),
+  }),
+);
+
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    stationId: uuid('station_id')
+      .notNull()
+      .references(() => stations.id, { onDelete: 'cascade' }),
+    issueId: uuid('issue_id').references(() => stationIssueRecords.id, { onDelete: 'cascade' }),
+    testHistoryId: uuid('test_history_id').references(() => stationTestHistory.id, { onDelete: 'cascade' }),
+    originalFileName: varchar('original_file_name', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 255 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    storagePath: text('storage_path').notNull(),
+    uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    attachmentsSingleParentCheck: check(
+      'attachments_single_parent_check',
+      sql`NOT (${table.issueId} IS NOT NULL AND ${table.testHistoryId} IS NOT NULL)`,
+    ),
+    attachmentsStationIdx: index('attachments_station_id_idx').on(table.stationId),
+    attachmentsIssueIdx: index('attachments_issue_id_idx').on(table.issueId),
+    attachmentsTestHistoryIdx: index('attachments_test_history_id_idx').on(table.testHistoryId),
+    attachmentsUploadedByIdx: index('attachments_uploaded_by_idx').on(table.uploadedBy),
+    attachmentsCreatedAtIdx: index('attachments_created_at_idx').on(table.createdAt),
+    attachmentsStoragePathUnique: uniqueIndex('attachments_storage_path_unique').on(table.storagePath),
   }),
 );
 

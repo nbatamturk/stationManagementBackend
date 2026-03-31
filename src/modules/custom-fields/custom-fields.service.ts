@@ -1,6 +1,11 @@
 import { AppError } from '../../utils/errors';
 import { isUniqueViolation } from '../../utils/db-errors';
 import { writeAuditLog } from '../../utils/audit-log';
+import {
+  normalizeOptionalMultilineText,
+  normalizeOptionalSingleLineText,
+  normalizeRequiredSingleLineText,
+} from '../../utils/input';
 
 import { customFieldsRepository, type CustomFieldsRepository } from './custom-fields.repository';
 
@@ -27,10 +32,20 @@ export class CustomFieldsService {
       isActive?: boolean;
     },
   ) {
+    const normalizedKey = normalizeRequiredSingleLineText(payload.key, 'Custom field key', {
+      collapseWhitespace: false,
+      maxLength: 100,
+      minLength: 2,
+    }).toLowerCase();
+    const normalizedLabel = normalizeRequiredSingleLineText(payload.label, 'Custom field label', {
+      maxLength: 140,
+      minLength: 2,
+    });
+
     try {
       const created = await this.repository.create({
-        key: payload.key,
-        label: payload.label,
+        key: normalizedKey,
+        label: normalizedLabel,
         type: payload.type,
         optionsJson: payload.optionsJson ?? {},
         isRequired: payload.isRequired ?? false,
@@ -82,8 +97,13 @@ export class CustomFieldsService {
       throw new AppError('Custom field not found', 404, 'CUSTOM_FIELD_NOT_FOUND');
     }
 
+    const normalizedLabel = normalizeRequiredSingleLineText(payload.label, 'Custom field label', {
+      maxLength: 140,
+      minLength: 2,
+    });
+
     const updated = await this.repository.updateById(id, {
-      label: payload.label,
+      label: normalizedLabel,
       type: payload.type,
       optionsJson: payload.optionsJson ?? existing.optionsJson,
       isRequired: payload.isRequired,
@@ -215,7 +235,12 @@ export class CustomFieldsService {
           throw new AppError(`Custom field ${definition.key} must be text`, 400, 'CUSTOM_FIELD_INVALID_TYPE');
         }
 
-        return value;
+        return (
+          normalizeOptionalMultilineText(value, `Custom field ${definition.key}`, {
+            emptyAs: 'null',
+            maxLength: 2000,
+          }) ?? null
+        );
       }
       case 'number': {
         if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -236,9 +261,19 @@ export class CustomFieldsService {
           throw new AppError(`Custom field ${definition.key} must be text`, 400, 'CUSTOM_FIELD_INVALID_TYPE');
         }
 
+        const normalizedValue =
+          normalizeOptionalSingleLineText(value, `Custom field ${definition.key}`, {
+            emptyAs: 'null',
+            maxLength: 200,
+          }) ?? null;
+
+        if (normalizedValue === null) {
+          return null;
+        }
+
         const options = this.extractSelectOptions(definition.optionsJson);
 
-        if (options.length > 0 && !options.includes(value)) {
+        if (options.length > 0 && !options.includes(normalizedValue)) {
           throw new AppError(
             `Custom field ${definition.key} must be one of: ${options.join(', ')}`,
             400,
@@ -246,7 +281,7 @@ export class CustomFieldsService {
           );
         }
 
-        return value;
+        return normalizedValue;
       }
       case 'date': {
         if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) {

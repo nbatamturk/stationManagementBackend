@@ -1,17 +1,29 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 
 import { db } from '../../db/client';
-import { stations } from '../../db/schema';
+import { attachments, stationIssueRecords, stationTestHistory, stations } from '../../db/schema';
 
 type StationInsert = typeof stations.$inferInsert;
 type StationUpdate = Partial<Omit<StationInsert, 'id' | 'createdAt'>>;
+const unique = <T>(values: T[]) => Array.from(new Set(values));
 
 export type StationSortBy = 'name' | 'createdAt' | 'updatedAt' | 'lastTestDate' | 'powerKw';
+export type StationMobileSummary = {
+  totalIssueCount: number;
+  openIssueCount: number;
+  hasOpenIssues: boolean;
+  attachmentCount: number;
+  testHistoryCount: number;
+  latestTestResult: 'pass' | 'fail' | 'warning' | null;
+};
 
 export type StationListFilter = {
   page: number;
   limit: number;
   search?: string;
+  ids?: string[];
+  code?: string;
+  qrCode?: string;
   status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
   brand?: string;
   currentType?: 'AC' | 'DC';
@@ -40,6 +52,18 @@ export class StationsRepository {
 
     if (filters.status) {
       conditions.push(eq(stations.status, filters.status));
+    }
+
+    if (filters.ids && filters.ids.length > 0) {
+      conditions.push(inArray(stations.id, filters.ids));
+    }
+
+    if (filters.code) {
+      conditions.push(eq(stations.code, filters.code));
+    }
+
+    if (filters.qrCode) {
+      conditions.push(eq(stations.qrCode, filters.qrCode));
     }
 
     if (filters.brand) {
@@ -79,6 +103,9 @@ export class StationsRepository {
         or(
           ilike(stations.name, `%${filters.search}%`),
           ilike(stations.code, `%${filters.search}%`),
+          ilike(stations.qrCode, `%${filters.search}%`),
+          ilike(stations.brand, `%${filters.search}%`),
+          ilike(stations.model, `%${filters.search}%`),
           ilike(stations.serialNumber, `%${filters.search}%`),
           ilike(stations.location, `%${filters.search}%`),
         )!,
@@ -135,6 +162,40 @@ export class StationsRepository {
     });
   }
 
+  async findByQrCode(qrCode: string) {
+    return db.query.stations.findFirst({
+      where: eq(stations.qrCode, qrCode),
+    });
+  }
+
+  async findByUniqueFields(values: { codes?: string[]; qrCodes?: string[]; serialNumbers?: string[] }) {
+    const codes = unique(values.codes ?? []);
+    const qrCodes = unique(values.qrCodes ?? []);
+    const serialNumbers = unique(values.serialNumbers ?? []);
+    const conditions: SQL[] = [];
+
+    if (codes.length > 0) {
+      conditions.push(inArray(stations.code, codes));
+    }
+
+    if (qrCodes.length > 0) {
+      conditions.push(inArray(stations.qrCode, qrCodes));
+    }
+
+    if (serialNumbers.length > 0) {
+      conditions.push(inArray(stations.serialNumber, serialNumbers));
+    }
+
+    if (conditions.length === 0) {
+      return [];
+    }
+
+    return db
+      .select()
+      .from(stations)
+      .where(or(...conditions)!);
+  }
+
   async create(values: StationInsert) {
     const [created] = await db.insert(stations).values(values).returning();
 
@@ -154,6 +215,19 @@ export class StationsRepository {
       })
       .where(eq(stations.id, id))
       .returning();
+
+    return updated;
+  }
+
+  async touchById(id: string, userId: string, executor: any = db) {
+    const [updated] = await executor
+      .update(stations)
+      .set({
+        updatedAt: new Date(),
+        updatedBy: userId,
+      })
+      .where(eq(stations.id, id))
+      .returning({ id: stations.id });
 
     return updated;
   }
@@ -187,6 +261,107 @@ export class StationsRepository {
         updatedAt: new Date(),
       })
       .where(eq(stations.id, stationId));
+  }
+
+  async getMobileSummaryMap(stationIds: string[]) {
+    const uniqueStationIds = unique(stationIds);
+
+    if (uniqueStationIds.length === 0) {
+      return new Map<string, StationMobileSummary>();
+    }
+
+    const [issueRows, attachmentRows, testHistoryRows, latestTestRows] = await Promise.all([
+      db
+        .select({
+          stationId: stationIssueRecords.stationId,
+          totalIssueCount: sql<number>`count(*)::int`,
+          openIssueCount: sql<number>`coalesce(sum(case when ${stationIssueRecords.status} in ('open', 'in_progress') then 1 else 0 end), 0)::int`,
+        })
+        .from(stationIssueRecords)
+        .where(inArray(stationIssueRecords.stationId, uniqueStationIds))
+        .groupBy(stationIssueRecords.stationId),
+      db
+        .select({
+          stationId: attachments.stationId,
+          attachmentCount: sql<number>`count(*)::int`,
+        })
+        .from(attachments)
+        .where(inArray(attachments.stationId, uniqueStationIds))
+        .groupBy(attachments.stationId),
+      db
+        .select({
+          stationId: stationTestHistory.stationId,
+          testHistoryCount: sql<number>`count(*)::int`,
+        })
+        .from(stationTestHistory)
+        .where(inArray(stationTestHistory.stationId, uniqueStationIds))
+        .groupBy(stationTestHistory.stationId),
+      db
+        .select({
+          stationId: stationTestHistory.stationId,
+          result: stationTestHistory.result,
+        })
+        .from(stationTestHistory)
+        .where(inArray(stationTestHistory.stationId, uniqueStationIds))
+        .orderBy(desc(stationTestHistory.testDate), desc(stationTestHistory.createdAt)),
+    ]);
+
+    const summaryMap = new Map<string, StationMobileSummary>();
+
+    for (const stationId of uniqueStationIds) {
+      summaryMap.set(stationId, {
+        totalIssueCount: 0,
+        openIssueCount: 0,
+        hasOpenIssues: false,
+        attachmentCount: 0,
+        testHistoryCount: 0,
+        latestTestResult: null,
+      });
+    }
+
+    for (const row of issueRows) {
+      const current = summaryMap.get(row.stationId);
+
+      if (!current) {
+        continue;
+      }
+
+      current.totalIssueCount = row.totalIssueCount;
+      current.openIssueCount = row.openIssueCount;
+      current.hasOpenIssues = row.openIssueCount > 0;
+    }
+
+    for (const row of attachmentRows) {
+      const current = summaryMap.get(row.stationId);
+
+      if (!current) {
+        continue;
+      }
+
+      current.attachmentCount = row.attachmentCount;
+    }
+
+    for (const row of testHistoryRows) {
+      const current = summaryMap.get(row.stationId);
+
+      if (!current) {
+        continue;
+      }
+
+      current.testHistoryCount = row.testHistoryCount;
+    }
+
+    for (const row of latestTestRows) {
+      const current = summaryMap.get(row.stationId);
+
+      if (!current || current.latestTestResult !== null) {
+        continue;
+      }
+
+      current.latestTestResult = row.result;
+    }
+
+    return summaryMap;
   }
 }
 

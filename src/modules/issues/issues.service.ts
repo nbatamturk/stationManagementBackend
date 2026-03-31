@@ -1,8 +1,17 @@
+import { eq } from 'drizzle-orm';
+
 import { db } from '../../db/client';
+import { stations } from '../../db/schema';
 import { writeAuditLog } from '../../utils/audit-log';
 import { isForeignKeyViolation } from '../../utils/db-errors';
 import { AppError } from '../../utils/errors';
+import {
+  normalizeOptionalMultilineText,
+  normalizeOptionalSingleLineText,
+  normalizeRequiredSingleLineText,
+} from '../../utils/input';
 
+import { attachmentsService } from '../attachments/attachments.service';
 import { stationsService, type StationsService } from '../stations/stations.service';
 import { issuesRepository, type IssuesRepository } from './issues.repository';
 
@@ -44,21 +53,33 @@ export class IssuesService {
 
   async create(userId: string, stationId: string, payload: CreateIssuePayload) {
     await this.stationService.ensureExists(stationId);
+    const normalizedPayload = {
+      ...payload,
+      title: normalizeRequiredSingleLineText(payload.title, 'Issue title', {
+        maxLength: 160,
+        minLength: 3,
+      }),
+      description: normalizeOptionalMultilineText(payload.description, 'Issue description', {
+        maxLength: 4000,
+      }),
+    };
 
     try {
       const created = await db.transaction(async (tx) => {
         const issue = await this.repository.create(
           {
             stationId,
-            title: payload.title,
-            description: payload.description,
-            severity: payload.severity ?? 'medium',
+            title: normalizedPayload.title,
+            description: normalizedPayload.description,
+            severity: normalizedPayload.severity ?? 'medium',
             status: 'open',
             reportedBy: userId,
-            assignedTo: payload.assignedTo,
+            assignedTo: normalizedPayload.assignedTo,
           },
           tx,
         );
+
+        await tx.update(stations).set({ updatedAt: new Date(), updatedBy: userId }).where(eq(stations.id, stationId));
 
         await writeAuditLog(
           {
@@ -94,23 +115,39 @@ export class IssuesService {
       throw new AppError('Issue not found', 404, 'ISSUE_NOT_FOUND');
     }
 
+    const normalizedPayload = {
+      ...payload,
+      title:
+        payload.title === undefined
+          ? undefined
+          : normalizeRequiredSingleLineText(payload.title, 'Issue title', {
+              maxLength: 160,
+              minLength: 3,
+            }),
+      description: normalizeOptionalMultilineText(payload.description, 'Issue description', {
+        emptyAs: 'null',
+        maxLength: 4000,
+      }),
+      status: payload.status,
+    };
+
     try {
       const updated = await db.transaction(async (tx) => {
         const resolvedAt =
-          payload.status === undefined
+          normalizedPayload.status === undefined
             ? issue.resolvedAt
-            : payload.status === 'resolved' || payload.status === 'closed'
+            : normalizedPayload.status === 'resolved' || normalizedPayload.status === 'closed'
               ? issue.resolvedAt ?? new Date()
               : null;
 
         const record = await this.repository.updateById(
           issueId,
           {
-            title: payload.title,
-            description: payload.description,
-            severity: payload.severity,
-            status: payload.status,
-            assignedTo: payload.assignedTo,
+            title: normalizedPayload.title,
+            description: normalizedPayload.description,
+            severity: normalizedPayload.severity,
+            status: normalizedPayload.status,
+            assignedTo: normalizedPayload.assignedTo,
             resolvedAt,
           },
           tx,
@@ -119,6 +156,11 @@ export class IssuesService {
         if (!record) {
           throw new AppError('Issue not found', 404, 'ISSUE_NOT_FOUND');
         }
+
+        await tx
+          .update(stations)
+          .set({ updatedAt: new Date(), updatedBy: userId })
+          .where(eq(stations.id, issue.stationId));
 
         await writeAuditLog(
           {
@@ -159,12 +201,15 @@ export class IssuesService {
       throw new AppError('Issue not found', 404, 'ISSUE_NOT_FOUND');
     }
 
-    await db.transaction(async (tx) => {
+    const deletedAttachments = await db.transaction(async (tx) => {
+      const removedAttachments = await attachmentsService.deleteByIssueId(userId, issueId, tx);
       const deleted = await this.repository.deleteById(issueId, tx);
 
       if (!deleted) {
         throw new AppError('Issue not found', 404, 'ISSUE_NOT_FOUND');
       }
+
+      await tx.update(stations).set({ updatedAt: new Date(), updatedBy: userId }).where(eq(stations.id, issue.stationId));
 
       await writeAuditLog(
         {
@@ -178,7 +223,11 @@ export class IssuesService {
         },
         tx,
       );
+
+      return removedAttachments;
     });
+
+    await attachmentsService.cleanupStoredFiles(deletedAttachments);
 
     return {
       success: true,
