@@ -1,0 +1,7 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, Arial, sans-serif; background:#f6f7f9; color:#111827; }
+a { color: inherit; text-decoration: none; }
+input, select, button, textarea { font: inherit; }
+.table { width:100%; border-collapse: collapse; background: white; }
+.table th, .table td { border-bottom:1px solid #e5e7eb; padding:10px; text-align:left; font-size:14px; }
+.card { background:white; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
