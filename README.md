@@ -1,30 +1,36 @@
-# İstasyon Takip Backend (Phase 1)
+# Station Management Backend (Phase 1)
 
-Bu proje, mobil uygulamanın kullandığı merkezi bir backend olarak EV test istasyonlarını yönetmek için hazırlanmıştır.
+A centralized backend service for managing EV test stations used by a mobile application.
 
-## Kullanım Amacı
-- İstasyonları merkezi olarak listelemek, oluşturmak, güncellemek, arşivlemek ve silmek
-- İstasyon bazlı dinamik custom field yapısını yönetmek
-- İstasyon test geçmişi tutmak
-- İstasyon arıza/kayıtlarını takip etmek
-- Basit ama genişletilebilir bir auth yapısı sağlamak
+## Table of Contents
+- [Overview](#overview)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Environment Variables](#environment-variables)
+- [Available Scripts](#available-scripts)
+- [API Endpoints (Phase 1)](#api-endpoints-phase-1)
+- [Station Filtering](#station-filtering)
+- [Seed Accounts](#seed-accounts)
+- [Roadmap (Phase 2 Suggestions)](#roadmap-phase-2-suggestions)
 
-## Teknoloji Yığını
-- Node.js
-- TypeScript
-- Fastify
-- PostgreSQL
-- Drizzle ORM (`drizzle-orm` + `pg`)
+## Overview
+This project provides a modular backend to:
+- List, create, update, archive, and delete EV stations
+- Manage dynamic custom fields per station
+- Track station test history
+- Track station issues/fault records
+- Provide a simple, extensible JWT-based authentication flow
 
-## Proje Mimarisi
-Kod tabanı modüler olacak şekilde ayrılmıştır:
-- `routes`: Sadece HTTP katmanı, request/response schema ve preHandler
-- `services`: İş kuralları ve uygulama mantığı
-- `repositories`: Veritabanı erişimi (Drizzle sorguları)
-- `plugins`: Auth, hata yakalama gibi ortak Fastify davranışları
-- `utils`: Ortak yardımcı fonksiyonlar
+## Tech Stack
+- **Runtime:** Node.js
+- **Language:** TypeScript
+- **Framework:** Fastify
+- **Database:** PostgreSQL
+- **ORM:** Drizzle ORM (`drizzle-orm` + `pg`)
 
-## Klasör Yapısı
+## Project Structure
+
 ```text
 src/
   app.ts
@@ -51,58 +57,70 @@ src/
 drizzle/
   *.sql
   meta/
+
+admin-web/
+  (optional admin panel app)
 ```
 
-## Kurulum
-1. Bağımlılıkları yükle:
+### Layer Responsibilities
+- **routes**: HTTP layer, request/response schema definitions, and route guards/pre-handlers
+- **services**: Business logic
+- **repositories**: Database access via Drizzle queries
+- **plugins**: Shared Fastify behaviors (auth, error handling, etc.)
+- **utils**: Shared helper functions
+
+## Getting Started
+
+### 1) Install dependencies
 ```bash
 npm install
 ```
 
-2. Ortam değişkenlerini oluştur:
+### 2) Configure environment
 ```bash
 cp .env.example .env
 ```
 
-3. Veritabanını migrate et:
+### 3) Run database migrations
 ```bash
 npm run db:migrate
 ```
 
-4. Seed verisini bas:
+### 4) Seed sample data
 ```bash
 npm run seed
 ```
 
-5. Geliştirme modunda çalıştır:
+### 5) Start in development mode
 ```bash
 npm run dev
 ```
 
-## NPM Scriptleri
-- `npm run dev`: Geliştirme modunda çalıştırır (`tsx watch`)
-- `npm run build`: TypeScript derleme
-- `npm run start`: Derlenmiş projeyi çalıştırır
-- `npm run db:generate`: Drizzle migration SQL üretir
-- `npm run db:migrate`: Migrationları uygular
-- `npm run db:push`: Drizzle schema'yı direkt DB'ye push eder
-- `npm run db:studio`: Drizzle Studio açar
-- `npm run seed`: Seed verisi yükler
-- `npm run db:setup`: Migrate + seed
+## Environment Variables
+Use `.env.example` as a reference.
 
-## Ortam Değişkenleri
-Örnek dosya: `.env.example`
-
-Gerekli temel değişkenler:
+Required core variables:
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `JWT_EXPIRES_IN`
 - `HOST`
 - `PORT`
 
-Not: `DATABASE_URL` içinde şifrede `/`, `@`, `:`, `#`, `?`, `%` gibi karakterler varsa URL-encode edilmelidir.
+> **Important:** If your database password includes special characters like `/`, `@`, `:`, `#`, `?`, or `%`, make sure they are URL-encoded in `DATABASE_URL`.
 
-## Faz 1 Endpoint'leri
+## Available Scripts
+- `npm run dev` — Run in development mode (`tsx watch`)
+- `npm run build` — Compile TypeScript
+- `npm run start` — Run compiled app
+- `npm run db:generate` — Generate Drizzle migration SQL
+- `npm run db:migrate` — Apply migrations
+- `npm run db:push` — Push Drizzle schema directly to DB
+- `npm run db:studio` — Open Drizzle Studio
+- `npm run seed` — Seed sample data
+- `npm run db:setup` — Run migrations + seed
+
+## API Endpoints (Phase 1)
+
 ### Auth
 - `POST /auth/login`
 - `GET /auth/me`
@@ -130,26 +148,26 @@ Not: `DATABASE_URL` içinde şifrede `/`, `@`, `:`, `#`, `?`, `%` gibi karakterl
 - `POST /stations/:id/issues`
 - `PATCH /issues/:id/status`
 
-## Filtreleme (GET /stations)
-Aşağıdaki filtreler desteklenir:
+## Station Filtering
+Supported filters for `GET /stations`:
 - `search`
 - `status`
 - `brand`
 - `currentType`
 - `sortBy`
-- Dinamik custom field filtreleri (`cf.<key>=<value>`)
+- Dynamic custom-field filters (`cf.<key>=<value>`)
 
-Örnek:
+Example:
 ```http
 GET /stations?status=active&cf.firmware_version=v3
 ```
 
-## Seed Hesapları
+## Seed Accounts
 - `admin@evlab.local` / `Admin123!`
 - `operator@evlab.local` / `Operator123!`
 
-## Faz 2 İçin Öneriler
-- Rol bazlı yetkilendirme (RBAC)
-- Sayfalama + toplam sayı metadata
-- Test kapsamı (unit + integration)
-- API dokümantasyonu (OpenAPI/Swagger)
+## Roadmap (Phase 2 Suggestions)
+- Role-based access control (RBAC)
+- Pagination + total count metadata
+- Unit + integration test coverage
+- API documentation (OpenAPI/Swagger)
