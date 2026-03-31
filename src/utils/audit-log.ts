@@ -9,8 +9,8 @@ export type AuditLogInput = {
   metadataJson?: Record<string, unknown>;
 };
 
-export const writeAuditLog = async (input: AuditLogInput): Promise<void> => {
-  await db.insert(auditLogs).values({
+export const writeAuditLog = async (input: AuditLogInput, executor: any = db): Promise<void> => {
+  await executor.insert(auditLogs).values({
     actorUserId: input.actorUserId,
     entityType: input.entityType,
     entityId: input.entityId,

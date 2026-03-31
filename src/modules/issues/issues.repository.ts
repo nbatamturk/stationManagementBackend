@@ -4,6 +4,7 @@ import { db } from '../../db/client';
 import { stationIssueRecords } from '../../db/schema';
 
 type IssueInsert = typeof stationIssueRecords.$inferInsert;
+type IssueUpdate = Partial<Omit<IssueInsert, 'id' | 'createdAt'>>;
 
 export class IssuesRepository {
   async listByStationId(stationId: string) {
@@ -13,8 +14,8 @@ export class IssuesRepository {
     });
   }
 
-  async create(values: IssueInsert) {
-    const [created] = await db.insert(stationIssueRecords).values(values).returning();
+  async create(values: IssueInsert, executor: any = db) {
+    const [created] = await executor.insert(stationIssueRecords).values(values).returning();
 
     if (!created) {
       throw new Error('Failed to create issue');
@@ -29,8 +30,30 @@ export class IssuesRepository {
     });
   }
 
-  async updateStatus(id: string, status: 'open' | 'in_progress' | 'resolved' | 'closed') {
-    const [updated] = await db
+  async updateById(id: string, values: IssueUpdate, executor: any = db) {
+    const [updated] = await executor
+      .update(stationIssueRecords)
+      .set({
+        ...values,
+        updatedAt: new Date(),
+      })
+      .where(eq(stationIssueRecords.id, id))
+      .returning();
+
+    return updated;
+  }
+
+  async deleteById(id: string, executor: any = db) {
+    const [deleted] = await executor
+      .delete(stationIssueRecords)
+      .where(eq(stationIssueRecords.id, id))
+      .returning({ id: stationIssueRecords.id });
+
+    return deleted;
+  }
+
+  async updateStatus(id: string, status: 'open' | 'in_progress' | 'resolved' | 'closed', executor: any = db) {
+    const [updated] = await executor
       .update(stationIssueRecords)
       .set({
         status,

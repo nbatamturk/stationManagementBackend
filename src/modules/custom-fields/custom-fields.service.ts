@@ -177,14 +177,14 @@ export class CustomFieldsService {
     return map;
   }
 
-  async upsertStationCustomFieldValues(stationId: string, customFields: Record<string, unknown>) {
+  async upsertStationCustomFieldValues(stationId: string, customFields: Record<string, unknown>, executor?: any) {
     const keys = Object.keys(customFields);
 
     if (keys.length === 0) {
       return;
     }
 
-    const definitions = await this.repository.findByKeys(keys);
+    const definitions: NonNullable<Definition>[] = await this.repository.findByKeys(keys, executor);
     const definitionMap = new Map(definitions.map((definition) => [definition.key, definition]));
 
     for (const key of keys) {
@@ -196,7 +196,7 @@ export class CustomFieldsService {
     for (const definition of definitions) {
       const value = customFields[definition.key];
       const normalizedValue = this.validateAndNormalizeCustomValue(definition, value);
-      await this.repository.upsertStationFieldValue(stationId, definition.id, normalizedValue);
+      await this.repository.upsertStationFieldValue(stationId, definition.id, normalizedValue, executor);
     }
   }
 

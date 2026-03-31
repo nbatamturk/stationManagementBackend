@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
 
 import { db } from '../../db/client';
 import { stations } from '../../db/schema';
@@ -9,6 +9,8 @@ type StationUpdate = Partial<Omit<StationInsert, 'id' | 'createdAt'>>;
 export type StationSortBy = 'name' | 'createdAt' | 'updatedAt' | 'lastTestDate' | 'powerKw';
 
 export type StationListFilter = {
+  page: number;
+  limit: number;
   search?: string;
   status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
   brand?: string;
@@ -52,11 +54,16 @@ export class StationsRepository {
 
     if (filters.customFilteredStationIds !== null && filters.customFilteredStationIds !== undefined) {
       if (filters.customFilteredStationIds.length === 0) {
-        return [];
+        return {
+          rows: [],
+          total: 0,
+        };
       }
 
       conditions.push(inArray(stations.id, filters.customFilteredStationIds));
     }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     const sortColumnMap = {
       name: stations.name,
@@ -69,11 +76,21 @@ export class StationsRepository {
     const sortBy = filters.sortBy ?? 'updatedAt';
     const orderDirection = filters.sortOrder ?? 'desc';
 
-    return db
+    const countRows = await db.select({ total: count() }).from(stations).where(whereClause);
+    const total = countRows[0]?.total ?? 0;
+
+    const rows = await db
       .select()
       .from(stations)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(orderDirection === 'asc' ? asc(sortColumnMap[sortBy]) : desc(sortColumnMap[sortBy]));
+      .where(whereClause)
+      .orderBy(orderDirection === 'asc' ? asc(sortColumnMap[sortBy]) : desc(sortColumnMap[sortBy]))
+      .limit(filters.limit)
+      .offset((filters.page - 1) * filters.limit);
+
+    return {
+      rows,
+      total,
+    };
   }
 
   async findById(id: string) {
@@ -126,7 +143,7 @@ export class StationsRepository {
     return updated;
   }
 
-  async updateLastTestDate(stationId: string, testDate: Date) {
+  async updateLastTestDate(stationId: string, testDate: Date | null) {
     await db
       .update(stations)
       .set({

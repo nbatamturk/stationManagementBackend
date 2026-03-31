@@ -39,6 +39,17 @@ export const issueStatusPatchBodySchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const issueUpdateBodySchema = Type.Object(
+  {
+    title: Type.Optional(Type.String({ minLength: 3, maxLength: 160 })),
+    description: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    severity: Type.Optional(issueSeveritySchema),
+    status: Type.Optional(issueStatusSchema),
+    assignedTo: Type.Optional(Type.Union([Type.String({ format: 'uuid' }), Type.Null()])),
+  },
+  { additionalProperties: false },
+);
+
 export const issueRecordSchema = Type.Object({
   id: Type.String({ format: 'uuid' }),
   stationId: Type.String({ format: 'uuid' }),
@@ -59,4 +70,9 @@ export const issueListResponseSchema = Type.Object({
 
 export const issueResponseSchema = Type.Object({
   data: issueRecordSchema,
+});
+
+export const issueDeleteResponseSchema = Type.Object({
+  success: Type.Boolean(),
+  id: Type.String({ format: 'uuid' }),
 });

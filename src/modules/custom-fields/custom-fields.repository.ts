@@ -47,19 +47,19 @@ export class CustomFieldsRepository {
     return updated;
   }
 
-  async findByKeys(keys: string[]) {
+  async findByKeys(keys: string[], executor: any = db) {
     if (keys.length === 0) {
       return [];
     }
 
-    return db
+    return executor
       .select()
       .from(customFieldDefinitions)
       .where(inArray(customFieldDefinitions.key, keys));
   }
 
-  async upsertStationFieldValue(stationId: string, fieldDefinitionId: string, valueJson: unknown) {
-    await db
+  async upsertStationFieldValue(stationId: string, fieldDefinitionId: string, valueJson: unknown, executor: any = db) {
+    await executor
       .insert(stationCustomFieldValues)
       .values({
         stationId,

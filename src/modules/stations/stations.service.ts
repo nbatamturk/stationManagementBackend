@@ -1,6 +1,10 @@
-import { AppError } from '../../utils/errors';
-import { isUniqueViolation } from '../../utils/db-errors';
+import { eq } from 'drizzle-orm';
+
+import { db } from '../../db/client';
+import { stations } from '../../db/schema';
 import { writeAuditLog } from '../../utils/audit-log';
+import { isUniqueViolation } from '../../utils/db-errors';
+import { AppError } from '../../utils/errors';
 
 import { customFieldsService, type CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { stationsRepository, type StationListFilter, type StationsRepository } from './stations.repository';
@@ -27,6 +31,8 @@ type StationCreatePayload = {
 type StationUpdatePayload = Partial<StationCreatePayload>;
 
 type StationListQuery = {
+  page?: number;
+  limit?: number;
   search?: string;
   status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
   brand?: string;
@@ -37,6 +43,8 @@ type StationListQuery = {
 } & Record<string, unknown>;
 
 const allowedQueryKeys = new Set([
+  'page',
+  'limit',
   'search',
   'status',
   'brand',
@@ -53,10 +61,14 @@ export class StationsService {
   ) {}
 
   async list(query: StationListQuery) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
     const customFieldFilters = this.extractCustomFieldFilters(query);
     const customFilteredStationIds = await this.cfService.getStationIdsByCustomFilters(customFieldFilters);
 
     const listFilters: StationListFilter = {
+      page,
+      limit,
       search: query.search,
       status: query.status,
       brand: query.brand,
@@ -67,14 +79,31 @@ export class StationsService {
       customFilteredStationIds,
     };
 
-    const rows = await this.repository.list(listFilters);
+    const { rows, total } = await this.repository.list(listFilters);
 
     if (rows.length === 0) {
-      return [];
+      return {
+        data: [],
+        meta: {
+          page,
+          limit,
+          total,
+          totalPages: 0,
+        },
+      };
     }
 
     const customFieldMap = await this.cfService.getStationCustomFieldMap(rows.map((row) => row.id));
-    return rows.map((row) => this.toStationResponse(row, customFieldMap.get(row.id) ?? {}));
+
+    return {
+      data: rows.map((row) => this.toStationResponse(row, customFieldMap.get(row.id) ?? {})),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async getById(id: string) {
@@ -90,38 +119,52 @@ export class StationsService {
 
   async create(userId: string, payload: StationCreatePayload) {
     try {
-      const created = await this.repository.create({
-        name: payload.name,
-        code: payload.code,
-        qrCode: payload.qrCode,
-        brand: payload.brand,
-        model: payload.model,
-        serialNumber: payload.serialNumber,
-        powerKw: payload.powerKw.toString(),
-        currentType: payload.currentType,
-        socketType: payload.socketType,
-        location: payload.location,
-        status: payload.status ?? 'active',
-        lastTestDate: payload.lastTestDate ? new Date(payload.lastTestDate) : undefined,
-        notes: payload.notes,
-        isArchived: payload.status === 'archived',
-        archivedAt: payload.status === 'archived' ? new Date() : undefined,
-        createdBy: userId,
-        updatedBy: userId,
+      const stationId = await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(stations)
+          .values({
+            name: payload.name,
+            code: payload.code,
+            qrCode: payload.qrCode,
+            brand: payload.brand,
+            model: payload.model,
+            serialNumber: payload.serialNumber,
+            powerKw: payload.powerKw.toString(),
+            currentType: payload.currentType,
+            socketType: payload.socketType,
+            location: payload.location,
+            status: payload.status ?? 'active',
+            lastTestDate: payload.lastTestDate ? new Date(payload.lastTestDate) : undefined,
+            notes: payload.notes,
+            isArchived: payload.status === 'archived',
+            archivedAt: payload.status === 'archived' ? new Date() : undefined,
+            createdBy: userId,
+            updatedBy: userId,
+          })
+          .returning({ id: stations.id });
+
+        if (!created) {
+          throw new Error('Failed to create station');
+        }
+
+        if (payload.customFields) {
+          await this.cfService.upsertStationCustomFieldValues(created.id, payload.customFields, tx);
+        }
+
+        await writeAuditLog(
+          {
+            actorUserId: userId,
+            entityType: 'station',
+            entityId: created.id,
+            action: 'station.created',
+          },
+          tx,
+        );
+
+        return created.id;
       });
 
-      if (payload.customFields) {
-        await this.cfService.upsertStationCustomFieldValues(created.id, payload.customFields);
-      }
-
-      await writeAuditLog({
-        actorUserId: userId,
-        entityType: 'station',
-        entityId: created.id,
-        action: 'station.created',
-      });
-
-      return this.getById(created.id);
+      return this.getById(stationId);
     } catch (error) {
       if (isUniqueViolation(error)) {
         const constraint = (error as { constraint?: string }).constraint;
@@ -153,46 +196,56 @@ export class StationsService {
     }
 
     try {
-      const updated = await this.repository.updateById(id, {
-        name: payload.name,
-        code: payload.code,
-        qrCode: payload.qrCode,
-        brand: payload.brand,
-        model: payload.model,
-        serialNumber: payload.serialNumber,
-        powerKw: payload.powerKw !== undefined ? payload.powerKw.toString() : undefined,
-        currentType: payload.currentType,
-        socketType: payload.socketType,
-        location: payload.location,
-        status: payload.status,
-        lastTestDate: payload.lastTestDate ? new Date(payload.lastTestDate) : undefined,
-        notes: payload.notes,
-        isArchived: payload.status ? payload.status === 'archived' : station.isArchived,
-        archivedAt:
-          payload.status === 'archived'
-            ? station.archivedAt ?? new Date()
-            : payload.status
-              ? null
-              : undefined,
-        updatedBy: userId,
+      await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(stations)
+          .set({
+            name: payload.name,
+            code: payload.code,
+            qrCode: payload.qrCode,
+            brand: payload.brand,
+            model: payload.model,
+            serialNumber: payload.serialNumber,
+            powerKw: payload.powerKw !== undefined ? payload.powerKw.toString() : undefined,
+            currentType: payload.currentType,
+            socketType: payload.socketType,
+            location: payload.location,
+            status: payload.status,
+            lastTestDate: payload.lastTestDate ? new Date(payload.lastTestDate) : undefined,
+            notes: payload.notes,
+            isArchived: payload.status ? payload.status === 'archived' : station.isArchived,
+            archivedAt:
+              payload.status === 'archived'
+                ? station.archivedAt ?? new Date()
+                : payload.status
+                  ? null
+                  : undefined,
+            updatedBy: userId,
+            updatedAt: new Date(),
+          })
+          .where(eq(stations.id, id))
+          .returning({ id: stations.id });
+
+        if (!updated) {
+          throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
+        }
+
+        if (payload.customFields) {
+          await this.cfService.upsertStationCustomFieldValues(id, payload.customFields, tx);
+        }
+
+        await writeAuditLog(
+          {
+            actorUserId: userId,
+            entityType: 'station',
+            entityId: id,
+            action: 'station.updated',
+          },
+          tx,
+        );
       });
 
-      if (!updated) {
-        throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
-      }
-
-      if (payload.customFields) {
-        await this.cfService.upsertStationCustomFieldValues(id, payload.customFields);
-      }
-
-      await writeAuditLog({
-        actorUserId: userId,
-        entityType: 'station',
-        entityId: id,
-        action: 'station.updated',
-      });
-
-      return this.getById(updated.id);
+      return this.getById(id);
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new AppError('Station has duplicate unique fields', 409, 'STATION_DUPLICATE');
@@ -209,13 +262,22 @@ export class StationsService {
       throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
     }
 
-    await this.repository.deleteById(id);
+    await db.transaction(async (tx) => {
+      const [deleted] = await tx.delete(stations).where(eq(stations.id, id)).returning({ id: stations.id });
 
-    await writeAuditLog({
-      actorUserId: userId,
-      entityType: 'station',
-      entityId: id,
-      action: 'station.deleted',
+      if (!deleted) {
+        throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
+      }
+
+      await writeAuditLog(
+        {
+          actorUserId: userId,
+          entityType: 'station',
+          entityId: id,
+          action: 'station.deleted',
+        },
+        tx,
+      );
     });
 
     return {
@@ -231,17 +293,32 @@ export class StationsService {
       throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
     }
 
-    const archived = await this.repository.archiveById(id, userId);
+    await db.transaction(async (tx) => {
+      const [archived] = await tx
+        .update(stations)
+        .set({
+          status: 'archived',
+          isArchived: true,
+          archivedAt: station.archivedAt ?? new Date(),
+          updatedBy: userId,
+          updatedAt: new Date(),
+        })
+        .where(eq(stations.id, id))
+        .returning({ id: stations.id });
 
-    if (!archived) {
-      throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
-    }
+      if (!archived) {
+        throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
+      }
 
-    await writeAuditLog({
-      actorUserId: userId,
-      entityType: 'station',
-      entityId: id,
-      action: 'station.archived',
+      await writeAuditLog(
+        {
+          actorUserId: userId,
+          entityType: 'station',
+          entityId: id,
+          action: 'station.archived',
+        },
+        tx,
+      );
     });
 
     return this.getById(id);
@@ -257,7 +334,7 @@ export class StationsService {
     return station;
   }
 
-  async updateLastTestDate(stationId: string, testDate: Date) {
+  async updateLastTestDate(stationId: string, testDate: Date | null) {
     await this.repository.updateLastTestDate(stationId, testDate);
   }
 
