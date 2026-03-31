@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import { successResponse } from '../../utils/api-response';
+import { getCurrentUserId } from '../../utils/auth';
 import { requireRoles } from '../../utils/rbac';
 
 import {
@@ -83,7 +84,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
         isActive?: boolean;
       };
 
-      const data = await usersService.create(body);
+      const data = await usersService.create(getCurrentUserId(request), body);
       return reply.status(201).send(successResponse(data));
     },
   );
@@ -109,7 +110,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
         role?: 'admin' | 'operator' | 'viewer';
       };
 
-      const data = await usersService.update(params.id, body);
+      const data = await usersService.update(getCurrentUserId(request), params.id, body);
       return successResponse(data);
     },
   );
@@ -130,7 +131,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
       const params = request.params as { id: string };
       const body = request.body as { isActive: boolean };
 
-      const data = await usersService.setActive(params.id, body.isActive);
+      const data = await usersService.setActive(getCurrentUserId(request), params.id, body.isActive);
       return successResponse(data);
     },
   );

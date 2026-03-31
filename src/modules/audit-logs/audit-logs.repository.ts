@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lte, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lte, type SQL } from 'drizzle-orm';
 
 import { db } from '../../db/client';
 import { auditLogs } from '../../db/schema';
@@ -12,6 +12,8 @@ export type AuditLogsFilters = {
   toDate?: Date;
   page: number;
   limit: number;
+  sortBy?: 'createdAt';
+  sortOrder?: 'asc' | 'desc';
 };
 
 export class AuditLogsRepository {
@@ -51,7 +53,10 @@ export class AuditLogsRepository {
       .select()
       .from(auditLogs)
       .where(whereClause)
-      .orderBy(desc(auditLogs.createdAt))
+      .orderBy(
+        filters.sortOrder === 'asc' ? asc(auditLogs.createdAt) : desc(auditLogs.createdAt),
+        filters.sortOrder === 'asc' ? asc(auditLogs.id) : desc(auditLogs.id),
+      )
       .limit(filters.limit)
       .offset((filters.page - 1) * filters.limit);
 

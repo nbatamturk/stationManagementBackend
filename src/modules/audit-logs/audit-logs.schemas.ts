@@ -8,6 +8,8 @@ export const auditLogsListQuerySchema = Type.Object(
     action: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
     fromDate: Type.Optional(Type.String({ format: 'date-time' })),
     toDate: Type.Optional(Type.String({ format: 'date-time' })),
+    sortBy: Type.Optional(Type.Union([Type.Literal('createdAt')])),
+    sortOrder: Type.Optional(Type.Union([Type.Literal('desc'), Type.Literal('asc')])),
     page: Type.Optional(Type.Integer({ minimum: 1 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   },

@@ -40,6 +40,13 @@ type StationListQuery = {
   sortBy?: 'name' | 'createdAt' | 'updatedAt' | 'lastTestDate' | 'powerKw';
   sortOrder?: 'asc' | 'desc';
   includeArchived?: boolean;
+  isArchived?: boolean;
+  createdFrom?: string;
+  createdTo?: string;
+  updatedFrom?: string;
+  updatedTo?: string;
+  powerMin?: number;
+  powerMax?: number;
 } & Record<string, unknown>;
 
 const allowedQueryKeys = new Set([
@@ -52,6 +59,13 @@ const allowedQueryKeys = new Set([
   'sortBy',
   'sortOrder',
   'includeArchived',
+  'isArchived',
+  'createdFrom',
+  'createdTo',
+  'updatedFrom',
+  'updatedTo',
+  'powerMin',
+  'powerMax',
 ]);
 
 export class StationsService {
@@ -63,6 +77,10 @@ export class StationsService {
   async list(query: StationListQuery) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+    this.assertDateRange('Created', query.createdFrom, query.createdTo);
+    this.assertDateRange('Updated', query.updatedFrom, query.updatedTo);
+    this.assertNumericRange('Power', query.powerMin, query.powerMax);
+
     const customFieldFilters = this.extractCustomFieldFilters(query);
     const customFilteredStationIds = await this.cfService.getStationIdsByCustomFilters(customFieldFilters);
 
@@ -76,6 +94,13 @@ export class StationsService {
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
       includeArchived: query.includeArchived,
+      isArchived: query.isArchived,
+      createdFrom: query.createdFrom ? new Date(query.createdFrom) : undefined,
+      createdTo: query.createdTo ? new Date(query.createdTo) : undefined,
+      updatedFrom: query.updatedFrom ? new Date(query.updatedFrom) : undefined,
+      updatedTo: query.updatedTo ? new Date(query.updatedTo) : undefined,
+      powerMin: query.powerMin,
+      powerMax: query.powerMax,
       customFilteredStationIds,
     };
 
@@ -104,6 +129,34 @@ export class StationsService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+
+  private assertDateRange(label: string, from?: string, to?: string) {
+    if (!from || !to) {
+      return;
+    }
+
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
+      throw new AppError(`Invalid ${label} date range`, 400, 'INVALID_FILTER');
+    }
+
+    if (fromDate > toDate) {
+      throw new AppError(`${label} from date must be less than or equal to to date`, 400, 'INVALID_FILTER');
+    }
+  }
+
+  private assertNumericRange(label: string, min?: number, max?: number) {
+    if (min === undefined || max === undefined) {
+      return;
+    }
+
+    if (min > max) {
+      throw new AppError(`${label} minimum must be less than or equal to maximum`, 400, 'INVALID_FILTER');
+    }
   }
 
   async getById(id: string) {
