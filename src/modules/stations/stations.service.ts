@@ -105,6 +105,7 @@ type StationListQuery = {
   search?: string;
   code?: string;
   qrCode?: string;
+  model?: string;
   ids?: string | string[];
   status?: StationStatus;
   brand?: string;
@@ -128,6 +129,7 @@ const allowedQueryKeys = new Set([
   'search',
   'code',
   'qrCode',
+  'model',
   'ids',
   'status',
   'brand',
@@ -174,6 +176,10 @@ export class StationsService {
       normalizeOptionalSingleLineText(query.qrCode, 'QR code', {
         maxLength: 150,
       }) ?? undefined;
+    const normalizedModel =
+      normalizeOptionalSingleLineText(query.model, 'Model', {
+        maxLength: 120,
+      }) ?? undefined;
     const normalizedBrand =
       normalizeOptionalSingleLineText(query.brand, 'Brand', {
         maxLength: 120,
@@ -207,6 +213,7 @@ export class StationsService {
       ids,
       code: normalizedCode,
       qrCode: normalizedQrCode,
+      model: normalizedModel,
       status: query.status,
       brand: normalizedBrand,
       currentType: query.currentType,

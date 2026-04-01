@@ -24,6 +24,7 @@ export type StationListFilter = {
   ids?: string[];
   code?: string;
   qrCode?: string;
+  model?: string;
   status?: StationStatus;
   brand?: string;
   currentType?: CurrentType;
@@ -68,6 +69,10 @@ export class StationsRepository {
 
     if (filters.brand) {
       conditions.push(eq(stations.brand, filters.brand));
+    }
+
+    if (filters.model) {
+      conditions.push(eq(stations.model, filters.model));
     }
 
     if (filters.currentType) {

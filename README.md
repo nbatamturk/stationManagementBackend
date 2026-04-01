@@ -1,220 +1,580 @@
-# Station Management Backend
+# Station Management Platform
 
-A centralized backend service for managing EV test stations used by a mobile application.
+EV test station management platform consisting of:
+
+- `backend`: Fastify + TypeScript + PostgreSQL API
+- `admin-web`: Next.js admin panel
+- `MobileApp`: Expo / React Native mobile client
+
+This README is written as an end-to-end runbook so you can clone the repo and start the project locally with minimal guesswork.
 
 ## Table of Contents
-- [Overview](#overview)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [Environment Variables](#environment-variables)
-- [Available Scripts](#available-scripts)
-- [API Endpoints](#api-endpoints)
-- [Station Filtering](#station-filtering)
-- [Station CSV Import Export](#station-csv-import-export)
-- [Seed Accounts](#seed-accounts)
-- [Roadmap](#roadmap)
 
-## Overview
-This project provides a modular backend to:
-- List, create, update, archive, and delete EV stations
-- Manage dynamic custom fields per station
-- Track station test history
-- Track station issues/fault records
-- Provide a simple, extensible JWT-based authentication flow
+- [What Is In This Repo](#what-is-in-this-repo)
+- [Current Status](#current-status)
+- [Tech Stack](#tech-stack)
+- [Repository Structure](#repository-structure)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Backend Setup](#backend-setup)
+- [Admin Web Setup](#admin-web-setup)
+- [Mobile App Setup](#mobile-app-setup)
+- [Seed Accounts](#seed-accounts)
+- [Useful URLs](#useful-urls)
+- [Available Scripts](#available-scripts)
+- [Testing](#testing)
+- [API Notes](#api-notes)
+- [Troubleshooting](#troubleshooting)
+- [Known Limitations](#known-limitations)
+
+## What Is In This Repo
+
+This project manages EV charging/test stations with:
+
+- JWT-based authentication
+- station list/detail APIs
+- custom field definitions
+- station test history
+- station issue/fault tracking
+- CSV station import/export
+- admin web panel
+- mobile app with Phase 1 backend integration
+- standard station filters including `brand`, `model`, `status`, and `currentType`
+
+## Current Status
+
+### Backend
+
+Backend is the primary source of truth.
+
+### Admin Web
+
+Admin web is available for authenticated management workflows.
+
+### Mobile App
+
+Mobile Phase 1 integration is in place. These flows use backend:
+
+- login
+- token storage
+- station list
+- station detail
+- QR lookup
+- create test history
+- create issue record
+
+These are intentionally **not** implemented yet in mobile Phase 1:
+
+- offline sync
+- background sync
+- mobile station create/update against backend
+- attachment upload flows
+
+The old local SQLite prototype still exists in the repo but is no longer the source of truth for integrated mobile flows.
 
 ## Tech Stack
-- **Runtime:** Node.js
-- **Language:** TypeScript
-- **Framework:** Fastify
-- **Database:** PostgreSQL
-- **ORM:** Drizzle ORM (`drizzle-orm` + `pg`)
 
-## Project Structure
+### Backend
+
+- Node.js
+- TypeScript
+- Fastify
+- PostgreSQL
+- Drizzle ORM
+- Zod
+
+### Admin Web
+
+- Next.js 15
+- React 19
+
+### Mobile
+
+- Expo SDK 54
+- React Native
+- Expo Router
+- Expo Secure Store
+
+## Repository Structure
 
 ```text
-src/
-  app.ts
-  server.ts
-  config/
-    env.ts
-  db/
-    client.ts
-    schema.ts
-    seed.ts
-  modules/
-    auth/
-    stations/
-    custom-fields/
-    test-history/
-    issues/
-    users/
-  plugins/
-    auth.ts
-    error-handler.ts
-  utils/
-  types/
-
-drizzle/
-  *.sql
-  meta/
-
-admin-web/
-  (optional admin panel app)
+.
+├── src/                # Backend source
+├── test/               # Backend integration tests
+├── drizzle/            # SQL migrations
+├── admin-web/          # Next.js admin panel
+├── MobileApp/          # Expo mobile app
+├── .env.example        # Backend env template
+└── README.md
 ```
 
-### Layer Responsibilities
-- **routes**: HTTP layer, request/response schema definitions, and route guards/pre-handlers
-- **services**: Business logic
-- **repositories**: Database access via Drizzle queries
-- **plugins**: Shared Fastify behaviors (auth, error handling, etc.)
-- **utils**: Shared helper functions
+## Prerequisites
 
-## Getting Started
+Install these first:
 
-### 1) Install dependencies
+- Node.js 20+ recommended
+- npm
+- PostgreSQL
+- Git
+
+Optional but useful:
+
+- Drizzle Studio capable browser
+- Android Studio emulator or physical Android device
+- Xcode simulator if running iOS
+- Expo Go or a dev build workflow
+
+## Quick Start
+
+If you want the shortest path to a running local environment:
+
+### 1. Clone and install dependencies
+
 ```bash
+git clone <YOUR_REPO_URL>
+cd stationManagementBackend
 npm install
+cd admin-web && npm install && cd ..
+cd MobileApp && npm install && cd ..
 ```
 
-### 2) Configure environment
+### 2. Create backend env
+
 ```bash
 cp .env.example .env
 ```
 
-### 3) Run database migrations
-```bash
-npm run db:migrate
+Update at least:
+
+- `DATABASE_URL`
+- `JWT_SECRET`
+
+### 3. Create PostgreSQL databases
+
+Example:
+
+```sql
+CREATE DATABASE station_mgmt;
+CREATE DATABASE station_mgmt_test;
 ```
 
-### 4) Seed sample data
+### 4. Run migrations and seed backend
+
 ```bash
-npm run seed
+npm run db:setup
 ```
 
-### 5) Start in development mode
+### 5. Start backend
+
 ```bash
 npm run dev
 ```
 
-## Environment Variables
-Use `.env.example` as a reference.
+### 6. Start admin web
 
-Required core variables:
-- `DATABASE_URL`
-- `JWT_SECRET`
-- `JWT_EXPIRES_IN`
-- `HOST`
-- `PORT`
-
-> **Important:** If your database password includes special characters like `/`, `@`, `:`, `#`, `?`, or `%`, make sure they are URL-encoded in `DATABASE_URL`.
-
-## Available Scripts
-- `npm run dev` — Run in development mode (`tsx watch`)
-- `npm run build` — Compile TypeScript
-- `npm run start` — Run compiled app
-- `npm run db:generate` — Generate Drizzle migration SQL
-- `npm run db:migrate` — Apply migrations
-- `npm run db:push` — Push Drizzle schema directly to DB
-- `npm run db:studio` — Open Drizzle Studio
-- `npm run seed` — Seed sample data
-- `npm run db:setup` — Run migrations + seed
-
-## API Endpoints
-
-### Auth
-- `POST /auth/login`
-- `GET /auth/me`
-
-### Stations
-- `GET /stations`
-- `GET /stations/:id`
-- `POST /stations`
-- `PUT /stations/:id`
-- `DELETE /stations/:id`
-- `POST /stations/:id/archive`
-
-### Custom Fields
-- `GET /custom-fields`
-- `POST /custom-fields`
-- `PUT /custom-fields/:id`
-- `PATCH /custom-fields/:id/active`
-
-### Test History
-- `GET /stations/:id/test-history`
-- `POST /stations/:id/test-history`
-
-### Issues
-- `GET /stations/:id/issues`
-- `POST /stations/:id/issues`
-- `PATCH /issues/:id/status`
-
-### Station CSV Import/Export
-- `GET /exports/stations.csv`
-- `POST /imports/stations/preview`
-- `POST /imports/stations/apply`
-
-## Station Filtering
-Supported filters for `GET /stations`:
-- `search`
-- `status`
-- `brand`
-- `currentType`
-- `sortBy`
-- Dynamic custom-field filters (`cf.<key>=<value>`)
-
-Example:
-```http
-GET /stations?status=active&cf.firmware_version=v3
+```bash
+cd admin-web
+cp .env.example .env.local
+npm run dev
 ```
 
-## Station CSV Import Export
+### 7. Start mobile
 
-### Export
-- `GET /exports/stations.csv`
-- Admin-only
-- Uses the station list filter model, including `cf.<key>` filters where applicable
-- Exports fixed station columns plus flat custom-field columns using the `cf.<key>` convention
-- Always exports all matching rows; `page` and `limit` are ignored for the CSV file
+```bash
+cd MobileApp
+cp .env.example .env
+npm run start
+```
 
-### Preview
-- `POST /imports/stations/preview`
-- Admin-only
-- Accepts `multipart/form-data` with a single CSV file field
-- Parses rows and returns a structured preview with valid rows, invalid rows, duplicate risks, unknown columns/custom fields, and apply-ready candidates
-- Does not persist station data
+## Backend Setup
 
-### Apply
-- `POST /imports/stations/apply`
-- Admin-only
-- Accepts JSON payload built from preview `candidate` rows
-- Uses `code` as the import match key
-- Behavior is `upsert`:
-  - matching `code` updates the station
-  - missing `code` creates a new station
-- `qrCode` and `serialNumber` must remain unique; conflicts are returned as failed rows
-- Rows with no effective changes are skipped
-- Valid create/update rows are applied transactionally
+### Backend Environment
 
-### CSV Column Rules
-- Required base columns: `name`, `code`, `qrCode`, `brand`, `model`, `serialNumber`, `powerKw`, `currentType`, `socketType`, `location`
-- Optional base columns: `status`, `isArchived`, `lastTestDate`, `notes`
-- Accepted read-only columns: `archivedAt`, `createdAt`, `updatedAt`
-- Custom field columns must use `cf.<key>`
-- Unknown non-custom columns fail preview
-- Unknown custom-field columns are reported and fail rows that contain values for them
+Create `.env` in the repository root:
 
-### Notes
-- Exported CSV is designed to round-trip through preview/apply with the current import rules
-- Apply revalidates rows, so preview output should be treated as a draft until apply succeeds
-- Blank optional values are treated as omitted; this phase does not support clearing existing values through CSV import
+```bash
+cp .env.example .env
+```
+
+Example:
+
+```env
+NODE_ENV=development
+HOST=0.0.0.0
+PORT=3000
+LOG_LEVEL=info
+TRUST_PROXY=false
+JSON_BODY_LIMIT_BYTES=1048576
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/station_mgmt
+TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/station_mgmt_test
+JWT_SECRET=change-this-to-a-long-secret
+JWT_EXPIRES_IN=1d
+LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5
+LOGIN_RATE_LIMIT_WINDOW_MS=900000
+LOGIN_RATE_LIMIT_BLOCK_MS=900000
+UPLOADS_DIR=uploads
+ATTACHMENTS_MAX_FILE_SIZE_BYTES=10485760
+```
+
+### Important Env Notes
+
+- `DATABASE_URL` must be a valid `postgres://` or `postgresql://` URL.
+- If your DB password contains characters like `/`, `@`, `:`, `#`, `?`, encode them in the URL.
+- `JWT_SECRET` must be at least 16 characters.
+- Integration tests use `TEST_DATABASE_URL` when present.
+
+### Database Setup
+
+Apply migrations:
+
+```bash
+npm run db:migrate
+```
+
+Seed example data:
+
+```bash
+npm run seed
+```
+
+Or do both:
+
+```bash
+npm run db:setup
+```
+
+### Run Backend
+
+Development mode:
+
+```bash
+npm run dev
+```
+
+Production build:
+
+```bash
+npm run build
+npm run start
+```
+
+## Admin Web Setup
+
+Admin web lives in `admin-web/`.
+
+### Admin Web Env
+
+```bash
+cd admin-web
+cp .env.example .env.local
+```
+
+Example:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
+```
+
+### Run Admin Web
+
+```bash
+cd admin-web
+npm install
+npm run dev
+```
+
+Default local URL:
+
+- `http://localhost:3001` if you start it with a custom port
+- otherwise Next.js typically uses `http://localhost:3000`, so if backend is also on `3000`, run admin web on another port:
+
+```bash
+npm run dev -- --port 3001
+```
+
+Recommended local pairing:
+
+- backend: `http://localhost:3000`
+- admin web: `http://localhost:3001`
+
+If you run admin web on `3001`, `NEXT_PUBLIC_API_BASE_URL` should still point to backend on `3000`.
+
+## Mobile App Setup
+
+Mobile app lives in `MobileApp/`.
+
+### Mobile Env
+
+```bash
+cd MobileApp
+cp .env.example .env
+```
+
+Example:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
+```
+
+### API Base URL Notes
+
+`EXPO_PUBLIC_API_BASE_URL` must point to the backend from the perspective of the device/emulator:
+
+- iOS simulator: usually `http://localhost:3000`
+- Android emulator: usually `http://10.0.2.2:3000`
+- physical phone: use your machine's LAN IP, for example `http://192.168.1.25:3000`
+
+If mobile login or station fetch fails while backend is running, the first thing to verify is this URL.
+
+### Run Mobile App
+
+```bash
+cd MobileApp
+npm install
+npm run start
+```
+
+Then choose one:
+
+```bash
+npm run android
+```
+
+or
+
+```bash
+npm run ios
+```
+
+or
+
+```bash
+npm run web
+```
+
+### Mobile Permissions
+
+The mobile app uses camera permission for QR scanning.
+
+### Mobile Phase 1 Behavior
+
+Backend-connected mobile flows:
+
+- sign in
+- restore saved session
+- sign out
+- station list and filters
+- station detail
+- QR station lookup
+- add test record
+- add issue record
+
+Deferred mobile flows:
+
+- station create/edit against backend
+- offline sync
+- attachment upload
 
 ## Seed Accounts
-- `admin@evlab.local` / `Admin123!`
-- `operator@evlab.local` / `Operator123!`
 
-## Roadmap
-- Unit + integration test coverage
-- API documentation (OpenAPI/Swagger)
-- Background import jobs for large files
-- Import templates and richer per-field remediation UX
+After `npm run seed`, these users are available:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@evlab.local` | `Admin123!` |
+| Operator | `operator@evlab.local` | `Operator123!` |
+
+There is no seeded viewer account by default.
+
+## Useful URLs
+
+Assuming backend runs on `http://localhost:3000`:
+
+- Health check: `http://localhost:3000/health`
+- Swagger UI: `http://localhost:3000/docs`
+- Admin web login: `http://localhost:3001/login` if you run Next on port `3001`
+
+## Available Scripts
+
+### Root / Backend
+
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start backend in watch mode |
+| `npm run build` | Build backend |
+| `npm run start` | Run built backend |
+| `npm run test` | Run integration tests |
+| `npm run test:integration` | Run integration tests explicitly |
+| `npm run db:generate` | Generate Drizzle migrations |
+| `npm run db:migrate` | Apply migrations |
+| `npm run db:push` | Push schema directly |
+| `npm run db:studio` | Open Drizzle Studio |
+| `npm run seed` | Seed sample data |
+| `npm run db:setup` | Migrate + seed |
+
+### Admin Web
+
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start Next.js dev server |
+| `npm run build` | Build admin web |
+| `npm run start` | Start production server |
+| `npm run lint` | Run lint task |
+
+### MobileApp
+
+| Command | Description |
+| --- | --- |
+| `npm run start` | Start Expo dev server |
+| `npm run android` | Start Expo for Android |
+| `npm run ios` | Start Expo for iOS |
+| `npm run web` | Start Expo web |
+
+## Testing
+
+Run backend integration tests:
+
+```bash
+npm test
+```
+
+or:
+
+```bash
+npm run test:integration
+```
+
+Notes:
+
+- tests expect a reachable PostgreSQL database
+- tests use `TEST_DATABASE_URL` when available
+- the test command runs migrations before executing tests
+
+## API Notes
+
+### Response Format
+
+Successful responses use one of:
+
+```json
+{ "data": { } }
+```
+
+or
+
+```json
+{ "data": [], "meta": { } }
+```
+
+Errors use:
+
+```json
+{ "code": "SOME_ERROR", "message": "Readable message", "details": {} }
+```
+
+### Auth
+
+Login:
+
+```http
+POST /auth/login
+```
+
+Current user:
+
+```http
+GET /auth/me
+Authorization: Bearer <accessToken>
+```
+
+### Main API Groups
+
+- `Auth`
+- `Stations`
+- `Custom Fields`
+- `Test History`
+- `Issues`
+- `Attachments`
+- `Users`
+- `Audit Logs`
+- `Dashboard`
+- `Station Transfer`
+
+Full live API reference is available in Swagger at `/docs`.
+
+## Troubleshooting
+
+### Backend says environment validation failed
+
+Check:
+
+- `.env` exists in repo root
+- `DATABASE_URL` is valid
+- `JWT_SECRET` is at least 16 characters
+
+### Connection refused to PostgreSQL
+
+Check:
+
+- PostgreSQL is running
+- database names exist
+- user/password in `DATABASE_URL` are correct
+- port is reachable
+
+### Admin web opens but login fails
+
+Check:
+
+- backend is running
+- `admin-web/.env.local` has the correct `NEXT_PUBLIC_API_BASE_URL`
+- seeded users exist
+
+If needed, reseed:
+
+```bash
+npm run seed
+```
+
+### Mobile app cannot log in or fetch stations
+
+Most common cause is wrong `EXPO_PUBLIC_API_BASE_URL`.
+
+Examples:
+
+- Android emulator: `http://10.0.2.2:3000`
+- physical device: `http://<your-local-ip>:3000`
+
+Also verify backend CORS/network accessibility from the device.
+
+### Port collision on 3000
+
+If backend uses `3000`, run admin web on another port:
+
+```bash
+cd admin-web
+npm run dev -- --port 3001
+```
+
+### Integration tests are using the wrong database
+
+Set `TEST_DATABASE_URL` in root `.env` so test runs do not reuse your development database.
+
+## Known Limitations
+
+- Mobile station create/edit is not connected to backend yet.
+- Offline sync is not implemented.
+- Mobile attachments flow is not implemented.
+- Some prototype/local SQLite infrastructure remains in the mobile codebase for non-integrated areas.
+
+## Suggested Local Run Order
+
+For daily development, this is the least confusing order:
+
+1. Start PostgreSQL
+2. Start backend with `npm run dev`
+3. Verify `http://localhost:3000/health`
+4. Start admin web
+5. Start mobile app
+6. Sign in with a seeded account
+
+That gives you a stable local environment for backend, web, and mobile together.

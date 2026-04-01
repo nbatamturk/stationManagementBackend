@@ -24,6 +24,16 @@ type ApiSuccessResponse<T> = {
   data: T;
 };
 
+type ApiPaginatedResponse<T> = {
+  data: T[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
 type LoginResponseData = {
   accessToken: string;
   tokenType: 'Bearer';
@@ -238,6 +248,33 @@ test('backend integration contract baseline', async (t) => {
     const data = expectSuccess<{ user: LoginResponseData['user'] }>(response, 200);
 
     assert.deepEqual(data.user, user);
+  });
+
+  await t.test('list stations filtered by model', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'operator');
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/stations',
+      headers: bearerHeaders(token),
+      payload: buildStationPayload('MOD'),
+    });
+    expectSuccess<StationResponseData>(createResponse, 201);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/stations?model=Terra%2054',
+      headers: bearerHeaders(token),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = parseBody<ApiPaginatedResponse<StationResponseData>>(response);
+
+    assert.equal(body.meta.total, 1);
+    assert.equal(body.data.length, 1);
+    assert.equal(body.data[0]?.id, fixtureIds.stations.existing);
+    assert.equal(body.data[0]?.model, 'Terra 54');
   });
 
   await t.test('create station', async () => {

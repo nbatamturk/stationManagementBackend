@@ -88,6 +88,7 @@ export const stationListQuerySchema = Type.Object(
     search: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     code: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
     qrCode: Type.Optional(Type.String({ minLength: 1, maxLength: 150 })),
+    model: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     ids: Type.Optional(
       Type.Union([
         Type.String({ minLength: 36, maxLength: 4000 }),
