@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth/auth-context';
 import { Button } from '@/components/ui/button';
 
 const nav = [
-  ['Dashboard', '/dashboard'], ['My Tasks', '/my-tasks'], ['Stations', '/stations'], ['Custom Fields', '/custom-fields'], ['Users', '/users'], ['Audit Logs', '/audit-logs'], ['Issues', '/issues'], ['Test History', '/test-history'],
+  ['Dashboard', '/dashboard'], ['Stations', '/stations'], ['Custom Fields', '/custom-fields'], ['Users', '/users'], ['Audit Logs', '/audit-logs'], ['Issues', '/issues'], ['Test History', '/test-history'],
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
