@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 
 import { db } from '../../db/client';
-import { attachments, stationIssueRecords, stationTestHistory, stations } from '../../db/schema';
+import { attachments, stationIssueRecords, stationTestHistory, stations, type CurrentType, type StationStatus } from '../../db/schema';
 
 type StationInsert = typeof stations.$inferInsert;
 type StationUpdate = Partial<Omit<StationInsert, 'id' | 'createdAt'>>;
@@ -24,9 +24,9 @@ export type StationListFilter = {
   ids?: string[];
   code?: string;
   qrCode?: string;
-  status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
+  status?: StationStatus;
   brand?: string;
-  currentType?: 'AC' | 'DC';
+  currentType?: CurrentType;
   sortBy?: StationSortBy;
   sortOrder?: 'asc' | 'desc';
   includeArchived?: boolean;
@@ -241,7 +241,7 @@ export class StationsRepository {
     const [updated] = await db
       .update(stations)
       .set({
-        status: 'archived',
+        status: 'inactive',
         isArchived: true,
         archivedAt: new Date(),
         updatedBy: userId,

@@ -8,8 +8,8 @@ export type AuditLogsFilters = {
   entityId?: string;
   actorUserId?: string;
   action?: string;
-  fromDate?: Date;
-  toDate?: Date;
+  createdFrom?: Date;
+  createdTo?: Date;
   page: number;
   limit: number;
   sortBy?: 'createdAt';
@@ -36,12 +36,12 @@ export class AuditLogsRepository {
       conditions.push(eq(auditLogs.action, filters.action));
     }
 
-    if (filters.fromDate) {
-      conditions.push(gte(auditLogs.createdAt, filters.fromDate));
+    if (filters.createdFrom) {
+      conditions.push(gte(auditLogs.createdAt, filters.createdFrom));
     }
 
-    if (filters.toDate) {
-      conditions.push(lte(auditLogs.createdAt, filters.toDate));
+    if (filters.createdTo) {
+      conditions.push(lte(auditLogs.createdAt, filters.createdTo));
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

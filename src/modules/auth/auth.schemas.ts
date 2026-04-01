@@ -1,11 +1,12 @@
 import { Type } from '@sinclair/typebox';
 
-import { createSuccessResponseSchema, uuidSchema } from '../../utils/api-schemas';
+import { userRoleValues } from '../../contracts/domain';
+import { createEnumSchema, createSuccessResponseSchema, uuidSchema } from '../../utils/api-schemas';
 
 export const loginBodySchema = Type.Object(
   {
     email: Type.String({ format: 'email', maxLength: 255 }),
-    password: Type.String({ minLength: 6, maxLength: 128 }),
+    password: Type.String({ minLength: 1, maxLength: 128 }),
   },
   { additionalProperties: false },
 );
@@ -15,7 +16,7 @@ export const authUserSchema = Type.Object(
     id: uuidSchema,
     email: Type.String({ format: 'email' }),
     fullName: Type.String(),
-    role: Type.Union([Type.Literal('admin'), Type.Literal('operator'), Type.Literal('viewer')]),
+    role: createEnumSchema(userRoleValues),
     isActive: Type.Boolean(),
   },
   { additionalProperties: false },

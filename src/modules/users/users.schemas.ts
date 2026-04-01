@@ -1,13 +1,15 @@
 import { Type } from '@sinclair/typebox';
 
+import { userRoleValues } from '../../contracts/domain';
 import {
   createPaginatedResponseSchema,
+  createEnumSchema,
   createSuccessResponseSchema,
   isoDateTimeSchema,
   uuidSchema,
 } from '../../utils/api-schemas';
 
-const userRoleSchema = Type.Union([Type.Literal('admin'), Type.Literal('operator'), Type.Literal('viewer')]);
+const userRoleSchema = createEnumSchema(userRoleValues);
 
 export const userIdParamsSchema = Type.Object(
   {
@@ -45,7 +47,7 @@ export const userUpdateBodySchema = Type.Object(
     password: Type.Optional(Type.String({ minLength: 8, maxLength: 128 })),
     role: Type.Optional(userRoleSchema),
   },
-  { additionalProperties: false },
+  { additionalProperties: false, minProperties: 1 },
 );
 
 export const userActivePatchBodySchema = Type.Object(

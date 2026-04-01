@@ -29,8 +29,8 @@ export const auditLogsRoutes: FastifyPluginAsync = async (fastify) => {
         entityId?: string;
         actorUserId?: string;
         action?: string;
-        fromDate?: string;
-        toDate?: string;
+        createdFrom?: string;
+        createdTo?: string;
         page?: number;
         limit?: number;
         sortBy?: 'createdAt';

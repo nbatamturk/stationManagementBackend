@@ -31,7 +31,14 @@ export class TestHistoryRepository {
   }
 
   async updateById(id: string, values: TestHistoryUpdate, executor: any = db) {
-    const [updated] = await executor.update(stationTestHistory).set(values).where(eq(stationTestHistory.id, id)).returning();
+    const [updated] = await executor
+      .update(stationTestHistory)
+      .set({
+        ...values,
+        updatedAt: new Date(),
+      })
+      .where(eq(stationTestHistory.id, id))
+      .returning();
 
     return updated;
   }

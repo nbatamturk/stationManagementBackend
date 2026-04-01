@@ -15,7 +15,10 @@ export class DashboardRepository {
       ]);
 
     const [openIssuesRow, criticalIssuesRow] = await Promise.all([
-      db.select({ total: count() }).from(stationIssueRecords).where(eq(stationIssueRecords.status, 'open')),
+      db
+        .select({ total: count() })
+        .from(stationIssueRecords)
+        .where(inArray(stationIssueRecords.status, ['open', 'in_progress'])),
       db
         .select({ total: count() })
         .from(stationIssueRecords)

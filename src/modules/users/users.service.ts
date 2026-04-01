@@ -122,11 +122,23 @@ export class UsersService {
       return this.toSafeUser(user);
     }
 
+    if (actorUserId === id && normalizedPayload.role && normalizedPayload.role !== 'admin') {
+      throw new AppError('You cannot remove your own admin role', 400, 'CANNOT_CHANGE_OWN_ROLE');
+    }
+
     if (normalizedPayload.email) {
       const duplicate = await this.repository.findByEmailExcludingId(normalizedPayload.email, id);
 
       if (duplicate) {
         throw new AppError('Email already exists', 409, 'USER_EMAIL_EXISTS');
+      }
+    }
+
+    if (user.role === 'admin' && user.isActive && normalizedPayload.role && normalizedPayload.role !== 'admin') {
+      const remainingActiveAdmins = await this.repository.countActiveAdmins(id);
+
+      if (remainingActiveAdmins === 0) {
+        throw new AppError('At least one active admin user is required', 400, 'LAST_ADMIN_REQUIRED');
       }
     }
 
@@ -166,6 +178,22 @@ export class UsersService {
 
     if (!user) {
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    if (actorUserId === id && !isActive) {
+      throw new AppError('You cannot deactivate your own account', 400, 'CANNOT_DEACTIVATE_SELF');
+    }
+
+    if (user.role === 'admin' && user.isActive && !isActive) {
+      const remainingActiveAdmins = await this.repository.countActiveAdmins(id);
+
+      if (remainingActiveAdmins === 0) {
+        throw new AppError('At least one active admin user is required', 400, 'LAST_ADMIN_REQUIRED');
+      }
+    }
+
+    if (user.isActive === isActive) {
+      return this.toSafeUser(user);
     }
 
     const updated = await this.repository.updateById(id, { isActive });

@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
-import { assertCanWrite } from '../../utils/rbac';
+import { requireRoles } from '../../utils/rbac';
 
 import {
   customFieldCreateBodySchema,
@@ -24,7 +24,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['Custom Fields'],
         summary: 'List custom field definitions',
-        description: 'Use `isActive` as the canonical filter name. The deprecated `active` alias is still accepted for backward compatibility.',
+        description: 'Returns canonical custom field definitions. JSON option payloads are exposed as `options` in the API contract.',
         security: bearerAuthSecurity,
         querystring: customFieldListQuerySchema,
         response: {
@@ -34,8 +34,8 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const query = request.query as { active?: boolean; isActive?: boolean };
-      const data = await customFieldsService.list(query.isActive ?? query.active);
+      const query = request.query as { isActive?: boolean };
+      const data = await customFieldsService.list(query.isActive);
       return successResponse(data);
     },
   );
@@ -43,7 +43,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/',
     {
-      preHandler: [fastify.authenticate, assertCanWrite],
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Custom Fields'],
         summary: 'Create a custom field definition',
@@ -60,7 +60,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
         key: string;
         label: string;
         type: 'text' | 'number' | 'boolean' | 'select' | 'date' | 'json';
-        optionsJson?: Record<string, unknown>;
+        options?: Record<string, unknown>;
         isRequired?: boolean;
         isFilterable?: boolean;
         isVisibleInList?: boolean;
@@ -76,7 +76,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     '/:id',
     {
-      preHandler: [fastify.authenticate, assertCanWrite],
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Custom Fields'],
         summary: 'Update a custom field definition',
@@ -94,7 +94,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       const body = request.body as {
         label: string;
         type: 'text' | 'number' | 'boolean' | 'select' | 'date' | 'json';
-        optionsJson?: Record<string, unknown>;
+        options?: Record<string, unknown>;
         isRequired: boolean;
         isFilterable: boolean;
         isVisibleInList: boolean;
@@ -109,7 +109,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     '/:id/active',
     {
-      preHandler: [fastify.authenticate, assertCanWrite],
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Custom Fields'],
         summary: 'Set custom field active state',

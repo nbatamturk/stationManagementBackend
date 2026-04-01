@@ -1,6 +1,16 @@
 import { Type } from '@sinclair/typebox';
 
 import {
+  currentTypeValues,
+  socketTypeValues,
+  stationDeletionModeValues,
+  stationStatusValues,
+  stationSyncConflictFieldValues,
+  stationTestResultValues,
+  stationViewValues,
+} from '../../contracts/domain';
+import {
+  createEnumSchema,
   createPaginatedResponseSchema,
   createSuccessResponseSchema,
   deleteResultDataSchema,
@@ -8,47 +18,30 @@ import {
   uuidSchema,
 } from '../../utils/api-schemas';
 
-const stationStatusSchema = Type.Union([
-  Type.Literal('active'),
-  Type.Literal('maintenance'),
-  Type.Literal('inactive'),
-  Type.Literal('faulty'),
-  Type.Literal('archived'),
-]);
+const stationStatusSchema = createEnumSchema(stationStatusValues, {
+  description: 'Canonical station operational status. Archive state is represented separately by `isArchived`.',
+});
 
-const currentTypeSchema = Type.Union([Type.Literal('AC'), Type.Literal('DC')]);
+const currentTypeSchema = createEnumSchema(currentTypeValues);
 
-const socketTypeSchema = Type.Union([
-  Type.Literal('Type2'),
-  Type.Literal('CCS2'),
-  Type.Literal('CHAdeMO'),
-  Type.Literal('GBT'),
-  Type.Literal('NACS'),
-  Type.Literal('Other'),
-]);
+const socketTypeSchema = createEnumSchema(socketTypeValues);
 
-const stationViewSchema = Type.Union([Type.Literal('full'), Type.Literal('compact')]);
+const stationViewSchema = createEnumSchema(stationViewValues);
 
-const testResultSchema = Type.Union([Type.Literal('pass'), Type.Literal('fail'), Type.Literal('warning')]);
+const testResultSchema = createEnumSchema(stationTestResultValues);
 
-const stationSyncConflictFieldSchema = Type.Union([
-  Type.Literal('status'),
-  Type.Literal('location'),
-  Type.Literal('lastTestDate'),
-  Type.Literal('notes'),
-  Type.Literal('customFields'),
-  Type.Literal('attachments'),
-  Type.Literal('issues'),
-]);
+const stationSyncConflictFieldSchema = createEnumSchema(stationSyncConflictFieldValues);
+
+const stationDeletionModeSchema = createEnumSchema(stationDeletionModeValues);
 
 const stationSyncSchema = Type.Object(
   {
     updatedAt: isoDateTimeSchema,
-    archived: Type.Boolean(),
+    isArchived: Type.Boolean(),
     archivedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
-    deleted: Type.Boolean(),
+    isDeleted: Type.Boolean(),
     deletedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
-    deleteMode: Type.Literal('hard_delete'),
+    deletionMode: stationDeletionModeSchema,
     conflictFields: Type.Optional(Type.Array(stationSyncConflictFieldSchema, { minItems: 1, maxItems: 7 })),
   },
   { additionalProperties: false },
@@ -84,6 +77,12 @@ const stationCommonProperties = {
   updatedAt: isoDateTimeSchema,
 } as const;
 
+const stationBaseListProperties = {
+  ...stationCommonProperties,
+  summary: stationMobileSummarySchema,
+  sync: stationSyncSchema,
+} as const;
+
 export const stationListQuerySchema = Type.Object(
   {
     search: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
@@ -99,24 +98,17 @@ export const stationListQuerySchema = Type.Object(
     brand: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     currentType: Type.Optional(currentTypeSchema),
     sortBy: Type.Optional(
-      Type.Union([
-        Type.Literal('name'),
-        Type.Literal('createdAt'),
-        Type.Literal('updatedAt'),
-        Type.Literal('lastTestDate'),
-        Type.Literal('powerKw'),
-      ]),
+      createEnumSchema(['name', 'createdAt', 'updatedAt', 'lastTestDate', 'powerKw'] as const),
     ),
-    sortOrder: Type.Optional(Type.Union([Type.Literal('asc'), Type.Literal('desc')])),
+    sortOrder: Type.Optional(createEnumSchema(['asc', 'desc'] as const)),
     includeArchived: Type.Optional(Type.Boolean()),
     isArchived: Type.Optional(Type.Boolean()),
     createdFrom: Type.Optional(isoDateTimeSchema),
     createdTo: Type.Optional(isoDateTimeSchema),
-    updatedSince: Type.Optional(isoDateTimeSchema),
     updatedFrom: Type.Optional(isoDateTimeSchema),
     updatedTo: Type.Optional(isoDateTimeSchema),
-    powerMin: Type.Optional(Type.Number({ minimum: 0 })),
-    powerMax: Type.Optional(Type.Number({ minimum: 0 })),
+    powerMin: Type.Optional(Type.Number({ minimum: 0, maximum: 1000 })),
+    powerMax: Type.Optional(Type.Number({ minimum: 0, maximum: 1000 })),
     page: Type.Optional(Type.Integer({ minimum: 1, maximum: 10_000 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
     view: Type.Optional(stationViewSchema),
@@ -124,7 +116,7 @@ export const stationListQuerySchema = Type.Object(
   {
     additionalProperties: true,
     description:
-      'Station list filters. Use `view=compact` for mobile-friendly list items. Dynamic custom-field filters use the `cf.<key>=<value>` convention.',
+      'Station list filters. `status` is operational-only. Archive lifecycle is represented by `isArchived` and `includeArchived`. Dynamic custom-field filters use the `cf.<key>=<value>` convention.',
   },
 );
 
@@ -150,7 +142,7 @@ export const stationCreateBodySchema = Type.Object(
     brand: Type.String({ minLength: 1, maxLength: 120 }),
     model: Type.String({ minLength: 1, maxLength: 120 }),
     serialNumber: Type.String({ minLength: 2, maxLength: 150 }),
-    powerKw: Type.Number({ minimum: 0 }),
+    powerKw: Type.Number({ minimum: 0, maximum: 1000 }),
     currentType: currentTypeSchema,
     socketType: socketTypeSchema,
     location: Type.String({ minLength: 2, maxLength: 500 }),
@@ -162,13 +154,14 @@ export const stationCreateBodySchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const stationUpdateBodySchema = Type.Partial(stationCreateBodySchema);
+export const stationUpdateBodySchema = Type.Partial(stationCreateBodySchema, {
+  additionalProperties: false,
+  minProperties: 1,
+});
 
 const stationSummaryProperties = {
-  ...stationCommonProperties,
+  ...stationBaseListProperties,
   serialNumber: Type.String(),
-  summary: stationMobileSummarySchema,
-  sync: stationSyncSchema,
 } as const;
 
 export const stationSummaryDataSchema = Type.Object(stationSummaryProperties, { additionalProperties: false });
@@ -183,21 +176,27 @@ export const stationResponseDataSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const stationListItemSchema = Type.Object(
+export const stationCompactListItemSchema = Type.Object(stationBaseListProperties, {
+  additionalProperties: false,
+});
+
+export const stationFullListItemSchema = Type.Object(
   {
-    ...stationCommonProperties,
-    serialNumber: Type.Optional(Type.String()),
-    notes: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-    createdAt: Type.Optional(isoDateTimeSchema),
-    customFields: Type.Optional(Type.Record(Type.String(), Type.Any())),
-    summary: Type.Optional(stationMobileSummarySchema),
-    sync: Type.Optional(stationSyncSchema),
+    ...stationBaseListProperties,
+    serialNumber: Type.String(),
+    notes: Type.Union([Type.String(), Type.Null()]),
+    createdAt: isoDateTimeSchema,
+    customFields: Type.Record(Type.String(), Type.Any()),
   },
   {
     additionalProperties: false,
-    description: 'Default list items include full station fields. `view=compact` returns the mobile-focused subset with `summary` and `sync`.',
   },
 );
+
+export const stationListItemSchema = Type.Union([stationFullListItemSchema, stationCompactListItemSchema], {
+  description:
+    'Station list items always include `summary` and `sync`. `view=compact` returns the compact item shape; the default view returns the full item shape.',
+});
 
 export const stationListResponseSchema = createPaginatedResponseSchema(stationListItemSchema);
 

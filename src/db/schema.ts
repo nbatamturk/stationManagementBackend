@@ -15,14 +15,25 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-export const userRoleEnum = pgEnum('user_role', ['admin', 'operator', 'viewer']);
-export const stationStatusEnum = pgEnum('station_status', ['active', 'maintenance', 'inactive', 'faulty', 'archived']);
-export const currentTypeEnum = pgEnum('current_type', ['AC', 'DC']);
-export const socketTypeEnum = pgEnum('socket_type', ['Type2', 'CCS2', 'CHAdeMO', 'GBT', 'NACS', 'Other']);
-export const customFieldTypeEnum = pgEnum('custom_field_type', ['text', 'number', 'boolean', 'select', 'date', 'json']);
-export const stationTestResultEnum = pgEnum('station_test_result', ['pass', 'fail', 'warning']);
-export const issueSeverityEnum = pgEnum('issue_severity', ['low', 'medium', 'high', 'critical']);
-export const issueStatusEnum = pgEnum('issue_status', ['open', 'in_progress', 'resolved', 'closed']);
+import {
+  currentTypeValues,
+  customFieldTypeValues,
+  issueSeverityValues,
+  issueStatusValues,
+  socketTypeValues,
+  stationStatusValues,
+  stationTestResultValues,
+  userRoleValues,
+} from '../contracts/domain';
+
+export const userRoleEnum = pgEnum('user_role', userRoleValues);
+export const stationStatusEnum = pgEnum('station_status', stationStatusValues);
+export const currentTypeEnum = pgEnum('current_type', currentTypeValues);
+export const socketTypeEnum = pgEnum('socket_type', socketTypeValues);
+export const customFieldTypeEnum = pgEnum('custom_field_type', customFieldTypeValues);
+export const stationTestResultEnum = pgEnum('station_test_result', stationTestResultValues);
+export const issueSeverityEnum = pgEnum('issue_severity', issueSeverityValues);
+export const issueStatusEnum = pgEnum('issue_status', issueStatusValues);
 
 export const users = pgTable(
   'users',
@@ -143,6 +154,7 @@ export const stationTestHistory = pgTable(
     metricsJson: jsonb('metrics_json').$type<Record<string, unknown>>().default({}).notNull(),
     testedBy: uuid('tested_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
     stationTestHistoryStationIdx: index('station_test_history_station_id_idx').on(table.stationId),

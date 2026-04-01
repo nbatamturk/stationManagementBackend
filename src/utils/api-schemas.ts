@@ -20,7 +20,7 @@ export const uuidSchema = Type.String({
 
 export const isoDateTimeSchema = Type.String({
   format: 'date-time',
-  description: 'ISO 8601 timestamp in UTC.',
+  description: 'ISO 8601 timestamp in UTC. All API date and date-like fields use this format.',
 });
 
 export const paginationMetaSchema = Type.Object(
@@ -123,6 +123,14 @@ export const createSuccessResponseSchema = <T extends TSchema>(dataSchema: T, op
     },
   );
 
+export const createCollectionResponseSchema = <T extends TSchema>(itemSchema: T, options: SchemaOptions = {}) =>
+  createSuccessResponseSchema(
+    Type.Array(itemSchema, {
+      description: 'Collection response payload.',
+    }),
+    options,
+  );
+
 export const createPaginatedResponseSchema = <T extends TSchema>(itemSchema: T, options: SchemaOptions = {}) =>
   Type.Object(
     {
@@ -139,5 +147,24 @@ export const pickErrorResponseSchemas = (...statusCodes: readonly CommonErrorSta
   Object.fromEntries(
     statusCodes.map((statusCode) => [statusCode, commonErrorResponseSchemas[statusCode]]),
   ) as Partial<Record<CommonErrorStatusCode, TSchema>>;
+
+export const createEnumSchema = <T extends readonly [string, ...string[]]>(
+  values: T,
+  options: {
+    description?: string;
+  } = {},
+) => {
+  if (values.length === 1) {
+    return Type.Literal(values[0], options);
+  }
+
+  const literalSchemas = values.map((value) => Type.Literal(value)) as [
+    ReturnType<typeof Type.Literal>,
+    ReturnType<typeof Type.Literal>,
+    ...ReturnType<typeof Type.Literal>[],
+  ];
+
+  return Type.Union(literalSchemas, options);
+};
 
 export const bearerAuthSecurity = [{ bearerAuth: [] }] as const;

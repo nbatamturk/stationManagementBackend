@@ -68,6 +68,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const data = await authService.login(body, fastify.signAccessToken);
         loginAttemptGuard.reset(attemptKey);
+
+        await request.server.auditSecurityEvent({
+          action: 'auth.login.succeeded',
+          actorUserId: data.user.id,
+          metadataJson: securityMetadata,
+        });
+
         return successResponse(data);
       } catch (error) {
         if (isAuthenticationError(error)) {

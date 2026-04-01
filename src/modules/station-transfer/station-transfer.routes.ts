@@ -119,7 +119,7 @@ export const stationTransferRoutes: FastifyPluginAsync = async (fastify) => {
             currentType: 'AC' | 'DC';
             socketType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
             location: string;
-            status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
+            status?: 'active' | 'maintenance' | 'inactive' | 'faulty';
             isArchived?: boolean;
             lastTestDate?: string;
             notes?: string;

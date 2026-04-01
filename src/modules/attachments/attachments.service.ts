@@ -185,6 +185,7 @@ export class AttachmentsService {
   private async upload(userId: string, target: AttachmentTargetContext, file: AttachmentUploadInput) {
     const mimeType = validateAttachmentFile({
       mimeType: file.mimeType,
+      originalFileName: file.originalFileName,
       sizeBytes: file.sizeBytes,
     });
     const originalFileName = sanitizeOriginalFileName(file.originalFileName);

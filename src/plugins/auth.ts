@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
 import { env } from '../config/env';
+import { authRepository } from '../modules/auth/auth.repository';
 import { AppError } from '../utils/errors';
 import { getRequestSecurityMetadata } from '../utils/security-events';
 
@@ -81,5 +82,23 @@ export const authPlugin = fp(async (fastify) => {
 
       throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
     }
+
+    const currentUser = await authRepository.findUserById(request.user.sub);
+
+    if (!currentUser || !currentUser.isActive) {
+      await fastify.auditSecurityEvent({
+        action: 'auth.token.rejected',
+        actorUserId: request.user.sub,
+        metadataJson: {
+          ...getRequestSecurityMetadata(request),
+          reason: currentUser ? 'inactive_user' : 'user_not_found',
+        },
+      });
+
+      throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
+    }
+
+    request.user.email = currentUser.email;
+    request.user.role = currentUser.role;
   });
 });

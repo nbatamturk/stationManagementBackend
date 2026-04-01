@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { paginatedResponse, successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
-import { assertCanWrite } from '../../utils/rbac';
+import { assertCanWrite, requireRoles } from '../../utils/rbac';
 
 import {
   stationCreateBodySchema,
@@ -27,7 +27,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ['Stations'],
         summary: 'List stations',
         description:
-          'Returns a paginated station list. Use `view=compact` for mobile-friendly items, `updatedSince` for incremental refresh, and `code`, `qrCode`, or `ids` for exact-match lookups. Date filters use ISO 8601 UTC strings. Custom field filters use the `cf.<key>=<value>` query parameter convention.',
+          'Returns a paginated station list. Use `view=compact` for mobile-friendly items, `updatedFrom` for incremental refresh, and `code`, `qrCode`, or `ids` for exact-match lookups. `status` is operational-only; archive lifecycle is represented by `isArchived`. Date filters use ISO 8601 UTC strings. Custom field filters use the `cf.<key>=<value>` query parameter convention.',
         security: bearerAuthSecurity,
         querystring: stationListQuerySchema,
         response: {
@@ -142,7 +142,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         currentType: 'AC' | 'DC';
         socketType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
         location: string;
-        status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
+        status?: 'active' | 'maintenance' | 'inactive' | 'faulty';
         lastTestDate?: string;
         notes?: string;
         customFields?: Record<string, unknown>;
@@ -182,7 +182,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         currentType?: 'AC' | 'DC';
         socketType?: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
         location?: string;
-        status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
+        status?: 'active' | 'maintenance' | 'inactive' | 'faulty';
         lastTestDate?: string;
         notes?: string;
         customFields?: Record<string, unknown>;
@@ -196,7 +196,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.delete(
     '/:id',
     {
-      preHandler: [fastify.authenticate, assertCanWrite],
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Stations'],
         summary: 'Delete a station',
@@ -218,7 +218,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/:id/archive',
     {
-      preHandler: [fastify.authenticate, assertCanWrite],
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Stations'],
         summary: 'Archive a station',

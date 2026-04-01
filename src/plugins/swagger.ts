@@ -29,7 +29,7 @@ export const swaggerPlugin = fp(async (fastify) => {
         title: 'Station Management Backend API',
         version: '1.0.0',
         description:
-          'API documentation for the station management backend. Successful JSON responses use either `{ data }` or `{ data, meta }`. Date-time fields are serialized as ISO 8601 UTC strings. Protected routes require `Authorization: Bearer <accessToken>` using the token returned by `POST /auth/login`.',
+          'API documentation for the station management backend. Successful JSON responses use either `{ data }` or `{ data, meta }`. Errors use `{ code, message, details }`. All API date and date-like fields are serialized as ISO 8601 UTC strings. `station.status` is the operational status only; archive lifecycle is represented separately by `isArchived` and `archivedAt`. Canonical JSON field names use `options`, `metrics`, and `metadata` instead of storage-oriented `*Json` names. Protected routes require `Authorization: Bearer <accessToken>` using the token returned by `POST /auth/login`.',
       },
       tags: [
         { name: 'System', description: 'Operational endpoints.' },

@@ -10,7 +10,7 @@ import { Select } from '@/components/ui/select';
 const schema = z.object({
   name: z.string().min(2), code: z.string().min(2), qrCode: z.string().min(2), brand: z.string().min(1), model: z.string().min(1),
   serialNumber: z.string().min(2), powerKw: z.coerce.number().min(0), currentType: z.enum(['AC','DC']), socketType: z.enum(['Type2','CCS2','CHAdeMO','GBT','NACS','Other']),
-  location: z.string().min(2), status: z.enum(['active','maintenance','inactive','faulty','archived']), notes: z.string().optional(),
+  location: z.string().min(2), status: z.enum(['active','maintenance','inactive','faulty']), notes: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -36,7 +36,7 @@ export function StationForm({ initial, customFields, onSubmit }: { initial?: Par
     <Input type='number' step='0.1' {...register('powerKw')} placeholder='Power (kW)' /><Input {...register('location')} placeholder='Location' />
     <Select {...register('currentType')}><option value='AC'>AC</option><option value='DC'>DC</option></Select>
     <Select {...register('socketType')}><option>Type2</option><option>CCS2</option><option>CHAdeMO</option><option>GBT</option><option>NACS</option><option>Other</option></Select>
-    <Select {...register('status')}><option>active</option><option>maintenance</option><option>inactive</option><option>faulty</option><option>archived</option></Select>
+    <Select {...register('status')}><option>active</option><option>maintenance</option><option>inactive</option><option>faulty</option></Select>
     <Input {...register('notes')} placeholder='Notes' />
     <h4>Dynamic Custom Fields</h4>
     {customFields.map((f) => <Input id={`cf_${f.key}`} key={f.id} placeholder={f.label} defaultValue={String(initial?.customFields?.[f.key] ?? '')} />)}

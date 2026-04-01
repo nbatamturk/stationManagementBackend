@@ -1,8 +1,9 @@
-export const customFieldColumnPrefix = 'cf.';
+import { currentTypeValues, socketTypeValues, stationStatusValues } from '../../contracts/domain';
 
-export const stationStatusValues = ['active', 'maintenance', 'inactive', 'faulty', 'archived'] as const;
-export const stationCurrentTypeValues = ['AC', 'DC'] as const;
-export const stationSocketTypeValues = ['Type2', 'CCS2', 'CHAdeMO', 'GBT', 'NACS', 'Other'] as const;
+export const customFieldColumnPrefix = 'cf.';
+export { stationStatusValues };
+export const stationCurrentTypeValues = currentTypeValues;
+export const stationSocketTypeValues = socketTypeValues;
 
 export const stationImportRequiredColumns = [
   'name',

@@ -26,7 +26,7 @@ import {
 import { parseCsvDocument, serializeCsv, type ParsedCsvRow } from './station-transfer.csv';
 
 type ExportQuery = Record<string, unknown>;
-type CustomFieldDefinition = Awaited<ReturnType<typeof customFieldsService.list>>[number];
+type CustomFieldDefinition = Awaited<ReturnType<typeof customFieldsService.listDefinitions>>[number];
 type ExistingStation = Awaited<ReturnType<typeof stationsRepository.findByUniqueFields>>[number];
 type StationListItem = Awaited<ReturnType<typeof stationsService.listFull>>['data'][number];
 
@@ -139,7 +139,7 @@ export class StationTransferService {
       page += 1;
     }
 
-    const definitions = await customFieldsService.list();
+    const definitions = await customFieldsService.listDefinitions();
     const headers = [...stationExportBaseColumns, ...definitions.map((definition) => `${customFieldColumnPrefix}${definition.key}`)];
     const csvRows = rows.map((row) => this.toExportRow(row, definitions));
     const csvContent = serializeCsv(headers, csvRows);
@@ -173,7 +173,7 @@ export class StationTransferService {
     },
   ) {
     const document = parseCsvDocument(input.csvContent);
-    const definitions = await customFieldsService.list();
+    const definitions = await customFieldsService.listDefinitions();
     const headerAnalysis = this.analyzeHeaders(document.headers, definitions);
     const parsedRows = document.rows.map((row) => this.parsePreviewCsvRow(row, headerAnalysis, definitions));
     const evaluatedRows = await this.evaluatePreviewRows(parsedRows, headerAnalysis, definitions);
@@ -248,7 +248,7 @@ export class StationTransferService {
       throw new AppError('At least one import row is required', 400, 'INVALID_IMPORT_PAYLOAD');
     }
 
-    const definitions = await customFieldsService.list();
+    const definitions = await customFieldsService.listDefinitions();
     const candidates = payload.rows.map((row) => this.parseApplyRow(row));
     const evaluatedRows = await this.evaluateApplyRows(candidates, definitions);
 
@@ -291,9 +291,9 @@ export class StationTransferService {
                 throw new Error('Failed to create station from import');
               }
 
-              if (row.candidate.customFields && Object.keys(row.candidate.customFields).length > 0) {
-                await customFieldsService.upsertStationCustomFieldValues(created.id, row.candidate.customFields, tx);
-              }
+              await customFieldsService.upsertStationCustomFieldValues(created.id, row.candidate.customFields ?? {}, tx, {
+                enforceRequiredDefinitions: true,
+              });
 
               await writeAuditLog(
                 {
@@ -324,7 +324,7 @@ export class StationTransferService {
               throw new AppError('Station not found during import apply', 404, 'STATION_NOT_FOUND');
             }
 
-            if (row.candidate.customFields && Object.keys(row.candidate.customFields).length > 0) {
+            if (row.candidate.customFields) {
               await customFieldsService.upsertStationCustomFieldValues(updated.id, row.candidate.customFields, tx);
             }
 
@@ -1243,7 +1243,7 @@ export class StationTransferService {
       return undefined;
     }
 
-    const matched = stationStatusValues.find((value) => value === normalized);
+    const matched = stationStatusValues.find((value: StationStatus) => value === normalized);
 
     if (matched) {
       return matched;
@@ -1574,50 +1574,29 @@ export class StationTransferService {
       return;
     }
 
-    if (station.status === 'archived' && station.isArchived === false) {
+    if (station.isArchived === true && station.status !== 'inactive') {
       issues.push({
         severity: 'error',
         code: 'ARCHIVE_STATE_CONFLICT',
-        message: 'status=archived conflicts with isArchived=false',
-        field: 'isArchived',
-      });
-    }
-
-    if (station.status !== 'archived' && station.isArchived === true) {
-      issues.push({
-        severity: 'error',
-        code: 'ARCHIVE_STATE_CONFLICT',
-        message: 'isArchived=true conflicts with a non-archived status',
+        message: 'Archived stations must use status=inactive',
         field: 'isArchived',
       });
     }
   }
 
   private resolveLifecycle(station: StationImportStationInput, existingStation?: ExistingStation | null) {
-    if (station.status) {
-      return {
-        status: station.status,
-        isArchived: station.status === 'archived',
-      };
-    }
+    const isArchived = station.isArchived ?? existingStation?.isArchived ?? false;
 
-    if (station.isArchived === true) {
+    if (isArchived) {
       return {
-        status: 'archived' as const,
+        status: 'inactive' as const,
         isArchived: true,
       };
     }
 
-    if (station.isArchived === false) {
-      return {
-        status: existingStation?.status && existingStation.status !== 'archived' ? existingStation.status : ('active' as const),
-        isArchived: false,
-      };
-    }
-
     return {
-      status: existingStation?.status ?? ('active' as const),
-      isArchived: existingStation?.isArchived ?? false,
+      status: station.status ?? existingStation?.status ?? ('active' as const),
+      isArchived: false,
     };
   }
 

@@ -58,6 +58,13 @@ export class CustomFieldsRepository {
       .where(inArray(customFieldDefinitions.key, keys));
   }
 
+  async listActiveRequired(executor: any = db) {
+    return executor
+      .select()
+      .from(customFieldDefinitions)
+      .where(and(eq(customFieldDefinitions.isActive, true), eq(customFieldDefinitions.isRequired, true)));
+  }
+
   async upsertStationFieldValue(stationId: string, fieldDefinitionId: string, valueJson: unknown, executor: any = db) {
     await executor
       .insert(stationCustomFieldValues)
@@ -84,6 +91,7 @@ export class CustomFieldsRepository {
       .select({
         stationId: stationCustomFieldValues.stationId,
         key: customFieldDefinitions.key,
+        type: customFieldDefinitions.type,
         valueJson: stationCustomFieldValues.valueJson,
       })
       .from(stationCustomFieldValues)

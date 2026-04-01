@@ -1,17 +1,35 @@
 import { Type } from '@sinclair/typebox';
 
-import { createSuccessResponseSchema, isoDateTimeSchema, uuidSchema } from '../../utils/api-schemas';
+import { issueSeverityValues, issueStatusValues, stationStatusValues, stationTestResultValues } from '../../contracts/domain';
+import {
+  createCollectionResponseSchema,
+  createEnumSchema,
+  createSuccessResponseSchema,
+  isoDateTimeSchema,
+  uuidSchema,
+} from '../../utils/api-schemas';
 
-const dashboardSummarySchema = Type.Object({
-  totalStations: Type.Integer({ minimum: 0 }),
-  activeStations: Type.Integer({ minimum: 0 }),
-  archivedStations: Type.Integer({ minimum: 0 }),
-  maintenanceStations: Type.Integer({ minimum: 0 }),
-  faultyStations: Type.Integer({ minimum: 0 }),
-  totalOpenIssues: Type.Integer({ minimum: 0 }),
-  totalCriticalIssues: Type.Integer({ minimum: 0 }),
-  recentTestCount: Type.Integer({ minimum: 0 }),
-});
+const stationStatusSchema = createEnumSchema(stationStatusValues);
+
+const issueSeveritySchema = createEnumSchema(issueSeverityValues);
+
+const issueStatusSchema = createEnumSchema(issueStatusValues);
+
+const testResultSchema = createEnumSchema(stationTestResultValues);
+
+const dashboardSummarySchema = Type.Object(
+  {
+    totalStations: Type.Integer({ minimum: 0 }),
+    activeStations: Type.Integer({ minimum: 0 }),
+    archivedStations: Type.Integer({ minimum: 0 }),
+    maintenanceStations: Type.Integer({ minimum: 0 }),
+    faultyStations: Type.Integer({ minimum: 0 }),
+    totalOpenIssues: Type.Integer({ minimum: 0 }),
+    totalCriticalIssues: Type.Integer({ minimum: 0 }),
+    recentTestCount: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
 
 const recentQuerySchema = Type.Object(
   {
@@ -25,7 +43,7 @@ const recentStationSchema = Type.Object(
     id: uuidSchema,
     name: Type.String(),
     code: Type.String(),
-    status: Type.String(),
+    status: stationStatusSchema,
     isArchived: Type.Boolean(),
     updatedAt: isoDateTimeSchema,
   },
@@ -38,8 +56,8 @@ const recentIssueSchema = Type.Object(
     stationId: uuidSchema,
     stationName: Type.String(),
     title: Type.String(),
-    severity: Type.String(),
-    status: Type.String(),
+    severity: issueSeveritySchema,
+    status: issueStatusSchema,
     createdAt: isoDateTimeSchema,
   },
   { additionalProperties: false },
@@ -50,7 +68,7 @@ const recentTestSchema = Type.Object(
     id: uuidSchema,
     stationId: uuidSchema,
     stationName: Type.String(),
-    result: Type.String(),
+    result: testResultSchema,
     testDate: isoDateTimeSchema,
     createdAt: isoDateTimeSchema,
   },
@@ -63,8 +81,8 @@ export const dashboardRecentStationsQuerySchema = recentQuerySchema;
 export const dashboardRecentIssuesQuerySchema = recentQuerySchema;
 export const dashboardRecentTestsQuerySchema = recentQuerySchema;
 
-export const dashboardRecentStationsResponseSchema = createSuccessResponseSchema(Type.Array(recentStationSchema));
+export const dashboardRecentStationsResponseSchema = createCollectionResponseSchema(recentStationSchema);
 
-export const dashboardRecentIssuesResponseSchema = createSuccessResponseSchema(Type.Array(recentIssueSchema));
+export const dashboardRecentIssuesResponseSchema = createCollectionResponseSchema(recentIssueSchema);
 
-export const dashboardRecentTestsResponseSchema = createSuccessResponseSchema(Type.Array(recentTestSchema));
+export const dashboardRecentTestsResponseSchema = createCollectionResponseSchema(recentTestSchema);

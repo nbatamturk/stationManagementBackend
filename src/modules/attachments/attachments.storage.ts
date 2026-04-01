@@ -5,20 +5,20 @@ import path from 'node:path';
 import { env } from '../../config/env';
 import { AppError } from '../../utils/errors';
 
-const mimeTypeToExtension: Record<string, string> = {
-  'application/json': '.json',
-  'application/msword': '.doc',
-  'application/pdf': '.pdf',
-  'application/vnd.ms-excel': '.xls',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-  'application/zip': '.zip',
-  'image/gif': '.gif',
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-  'text/csv': '.csv',
-  'text/plain': '.txt',
+const mimeTypeToExtensions: Record<string, readonly string[]> = {
+  'application/json': ['.json'],
+  'application/msword': ['.doc'],
+  'application/pdf': ['.pdf'],
+  'application/vnd.ms-excel': ['.xls'],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  'application/zip': ['.zip'],
+  'image/gif': ['.gif'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/webp': ['.webp'],
+  'text/csv': ['.csv'],
+  'text/plain': ['.txt', '.log'],
 };
 
 export const attachmentAllowedMimeTypes = [
@@ -58,12 +58,13 @@ const normalizeMimeType = (mimeType: string) => mimeType.trim().toLowerCase();
 
 const getSafeExtension = (fileName: string, mimeType: string) => {
   const extension = path.extname(fileName).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 16);
+  const allowedExtensions = mimeTypeToExtensions[mimeType] ?? [];
 
-  if (extension && extension !== '.') {
+  if (extension && extension !== '.' && allowedExtensions.includes(extension)) {
     return extension;
   }
 
-  return mimeTypeToExtension[mimeType] ?? '';
+  return allowedExtensions[0] ?? '';
 };
 
 const getStoredBaseName = (fileName: string, extension: string) => {
@@ -91,8 +92,14 @@ export const sanitizeOriginalFileName = (fileName: string | null | undefined) =>
   return (normalized || 'file').slice(0, 255);
 };
 
-export const validateAttachmentFile = (input: { mimeType: string; sizeBytes: number }) => {
+export const validateAttachmentFile = (input: {
+  mimeType: string;
+  originalFileName: string | null | undefined;
+  sizeBytes: number;
+}) => {
   const mimeType = normalizeMimeType(input.mimeType);
+  const originalFileName = sanitizeOriginalFileName(input.originalFileName);
+  const extension = path.extname(originalFileName).toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 16);
 
   if (!allowedMimeTypeSet.has(mimeType)) {
     throw new AppError('Unsupported attachment type', 415, 'UNSUPPORTED_ATTACHMENT_TYPE', {
@@ -113,6 +120,21 @@ export const validateAttachmentFile = (input: { mimeType: string; sizeBytes: num
         maxFileSizeBytes: attachmentMaxFileSizeBytes,
       },
     );
+  }
+
+  if (extension && extension !== '.') {
+    const allowedExtensions = mimeTypeToExtensions[mimeType] ?? [];
+
+    if (allowedExtensions.length > 0 && !allowedExtensions.includes(extension)) {
+      throw new AppError(
+        'Attachment file extension does not match the content type',
+        400,
+        'INVALID_ATTACHMENT_FILE_NAME',
+        {
+          allowedExtensions,
+        },
+      );
+    }
   }
 
   return mimeType;

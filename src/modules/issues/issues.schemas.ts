@@ -1,6 +1,9 @@
 import { Type } from '@sinclair/typebox';
 
+import { issueSeverityValues, issueStatusValues } from '../../contracts/domain';
 import {
+  createCollectionResponseSchema,
+  createEnumSchema,
   createSuccessResponseSchema,
   deleteResultDataSchema,
   isoDateTimeSchema,
@@ -21,19 +24,9 @@ export const issueIdParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const issueSeveritySchema = Type.Union([
-  Type.Literal('low'),
-  Type.Literal('medium'),
-  Type.Literal('high'),
-  Type.Literal('critical'),
-]);
+const issueSeveritySchema = createEnumSchema(issueSeverityValues);
 
-const issueStatusSchema = Type.Union([
-  Type.Literal('open'),
-  Type.Literal('in_progress'),
-  Type.Literal('resolved'),
-  Type.Literal('closed'),
-]);
+const issueStatusSchema = createEnumSchema(issueStatusValues);
 
 export const issueCreateBodySchema = Type.Object(
   {
@@ -60,7 +53,7 @@ export const issueUpdateBodySchema = Type.Object(
     status: Type.Optional(issueStatusSchema),
     assignedTo: Type.Optional(Type.Union([uuidSchema, Type.Null()])),
   },
-  { additionalProperties: false },
+  { additionalProperties: false, minProperties: 1 },
 );
 
 export const issueRecordSchema = Type.Object(
@@ -80,7 +73,7 @@ export const issueRecordSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const issueListResponseSchema = createSuccessResponseSchema(Type.Array(issueRecordSchema));
+export const issueListResponseSchema = createCollectionResponseSchema(issueRecordSchema);
 
 export const issueResponseSchema = createSuccessResponseSchema(issueRecordSchema);
 

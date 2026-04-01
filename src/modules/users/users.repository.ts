@@ -89,6 +89,18 @@ export class UsersRepository {
 
     return updated;
   }
+
+  async countActiveAdmins(excludedUserId?: string) {
+    const conditions: SQL[] = [eq(users.role, 'admin'), eq(users.isActive, true)];
+
+    if (excludedUserId) {
+      conditions.push(ne(users.id, excludedUserId));
+    }
+
+    const whereClause = and(...conditions);
+    const [row] = await db.select({ total: count() }).from(users).where(whereClause);
+    return row?.total ?? 0;
+  }
 }
 
 export const usersRepository = new UsersRepository();

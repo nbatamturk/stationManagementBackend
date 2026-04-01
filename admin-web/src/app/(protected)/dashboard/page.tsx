@@ -7,7 +7,7 @@ export default function DashboardPage() {
   const { data } = useQuery({ queryKey: ['dashboardStations'], queryFn: () => stationsClient.list({ page: 1, limit: 100 }) });
   const total = data?.meta.total ?? 0;
   const active = data?.data.filter((s) => s.status === 'active').length ?? 0;
-  const archived = data?.data.filter((s) => s.status === 'archived' || s.isArchived).length ?? 0;
+  const archived = data?.data.filter((s) => s.isArchived).length ?? 0;
   const recent = [...(data?.data ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 5);
   return <div style={{display:'grid',gap:16}}>
     <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>

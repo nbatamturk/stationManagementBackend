@@ -2,6 +2,23 @@ import 'dotenv/config';
 import { z } from 'zod';
 
 const booleanishSchema = z.enum(['true', 'false', '1', '0']);
+const postgresUrlSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:';
+      } catch {
+        return false;
+      }
+    },
+    {
+      message:
+        'DATABASE_URL must be a valid postgres URL. If password includes special chars like / @ : # ?, URL-encode it (e.g. "/" => "%2F").',
+    },
+  );
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -10,23 +27,8 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   TRUST_PROXY: booleanishSchema.default('false').transform((value) => value === 'true' || value === '1'),
   JSON_BODY_LIMIT_BYTES: z.coerce.number().int().positive().default(1024 * 1024),
-  DATABASE_URL: z
-    .string()
-    .min(1)
-    .refine(
-      (value) => {
-        try {
-          const parsed = new URL(value);
-          return parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:';
-        } catch {
-          return false;
-        }
-      },
-      {
-        message:
-          'DATABASE_URL must be a valid postgres URL. If password includes special chars like / @ : # ?, URL-encode it (e.g. "/" => "%2F").',
-      },
-    ),
+  DATABASE_URL: postgresUrlSchema,
+  TEST_DATABASE_URL: postgresUrlSchema.optional(),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('1d'),
   LOGIN_RATE_LIMIT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
@@ -45,4 +47,10 @@ if (!parsed.success) {
   throw new Error('Environment validation failed');
 }
 
-export const env = parsed.data;
+export const env = {
+  ...parsed.data,
+  DATABASE_URL:
+    parsed.data.NODE_ENV === 'test' && parsed.data.TEST_DATABASE_URL
+      ? parsed.data.TEST_DATABASE_URL
+      : parsed.data.DATABASE_URL,
+};

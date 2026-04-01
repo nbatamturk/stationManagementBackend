@@ -1,6 +1,9 @@
 import { Type } from '@sinclair/typebox';
 
+import { stationTestResultValues } from '../../contracts/domain';
 import {
+  createCollectionResponseSchema,
+  createEnumSchema,
   createSuccessResponseSchema,
   deleteResultDataSchema,
   isoDateTimeSchema,
@@ -21,14 +24,16 @@ export const testHistoryIdParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const testResultSchema = Type.Union([Type.Literal('pass'), Type.Literal('fail'), Type.Literal('warning')]);
+const testResultSchema = createEnumSchema(stationTestResultValues);
+
+const jsonObjectSchema = Type.Object({}, { additionalProperties: true });
 
 export const testHistoryCreateBodySchema = Type.Object(
   {
     testDate: Type.Optional(isoDateTimeSchema),
     result: testResultSchema,
     notes: Type.Optional(Type.String({ maxLength: 2000 })),
-    metricsJson: Type.Optional(Type.Any()),
+    metrics: Type.Optional(jsonObjectSchema),
   },
   { additionalProperties: false },
 );
@@ -38,9 +43,9 @@ export const testHistoryUpdateBodySchema = Type.Object(
     testDate: Type.Optional(isoDateTimeSchema),
     result: Type.Optional(testResultSchema),
     notes: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
-    metricsJson: Type.Optional(Type.Any()),
+    metrics: Type.Optional(jsonObjectSchema),
   },
-  { additionalProperties: false },
+  { additionalProperties: false, minProperties: 1 },
 );
 
 export const testHistoryRecordSchema = Type.Object(
@@ -50,14 +55,15 @@ export const testHistoryRecordSchema = Type.Object(
     testDate: isoDateTimeSchema,
     result: testResultSchema,
     notes: Type.Union([Type.String(), Type.Null()]),
-    metricsJson: Type.Any(),
+    metrics: jsonObjectSchema,
     testedBy: Type.Union([uuidSchema, Type.Null()]),
     createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
   },
   { additionalProperties: false },
 );
 
-export const testHistoryListResponseSchema = createSuccessResponseSchema(Type.Array(testHistoryRecordSchema));
+export const testHistoryListResponseSchema = createCollectionResponseSchema(testHistoryRecordSchema);
 
 export const testHistoryResponseSchema = createSuccessResponseSchema(testHistoryRecordSchema);
 

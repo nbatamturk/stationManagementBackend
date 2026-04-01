@@ -1,13 +1,17 @@
 import { eq } from 'drizzle-orm';
 
 import { db } from '../../db/client';
-import { stations } from '../../db/schema';
+import { stations, type CurrentType, type SocketType, type StationStatus } from '../../db/schema';
 import { writeAuditLog } from '../../utils/audit-log';
-import { isUniqueViolation } from '../../utils/db-errors';
+import { getPgError, isUniqueViolation } from '../../utils/db-errors';
 import { AppError } from '../../utils/errors';
 import {
+  normalizeOptionalDateTime,
+  normalizeOptionalFiniteNumber,
+  normalizeOptionalObject,
   normalizeOptionalMultilineText,
   normalizeOptionalSingleLineText,
+  normalizeRequiredFiniteNumber,
   normalizeRequiredSingleLineText,
 } from '../../utils/input';
 
@@ -29,10 +33,10 @@ type StationCommonResponse = {
   brand: string;
   model: string;
   powerKw: number;
-  currentType: 'AC' | 'DC';
-  socketType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+  currentType: CurrentType;
+  socketType: SocketType;
   location: string;
-  status: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
+  status: StationStatus;
   lastTestDate: Date | null;
   isArchived: boolean;
   archivedAt: Date | null;
@@ -40,11 +44,11 @@ type StationCommonResponse = {
 };
 type StationSyncMetadata = {
   updatedAt: Date;
-  archived: boolean;
+  isArchived: boolean;
   archivedAt: Date | null;
-  deleted: false;
+  isDeleted: false;
   deletedAt: null;
-  deleteMode: 'hard_delete';
+  deletionMode: 'hard_delete';
   conflictFields?: typeof STATION_CONFLICT_FIELDS;
 };
 type StationCompactResponse = StationCommonResponse & {
@@ -54,7 +58,7 @@ type StationCompactResponse = StationCommonResponse & {
 type StationSummaryResponse = StationCompactResponse & {
   serialNumber: string;
 };
-type StationFullListItemResponse = StationCommonResponse & {
+type StationFullListItemResponse = StationCompactResponse & {
   serialNumber: string;
   notes: string | null;
   createdAt: Date;
@@ -84,10 +88,10 @@ type StationCreatePayload = {
   model: string;
   serialNumber: string;
   powerKw: number;
-  currentType: 'AC' | 'DC';
-  socketType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+  currentType: CurrentType;
+  socketType: SocketType;
   location: string;
-  status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
+  status?: StationStatus;
   lastTestDate?: string;
   notes?: string;
   customFields?: Record<string, unknown>;
@@ -102,16 +106,15 @@ type StationListQuery = {
   code?: string;
   qrCode?: string;
   ids?: string | string[];
-  status?: 'active' | 'maintenance' | 'inactive' | 'faulty' | 'archived';
+  status?: StationStatus;
   brand?: string;
-  currentType?: 'AC' | 'DC';
+  currentType?: CurrentType;
   sortBy?: 'name' | 'createdAt' | 'updatedAt' | 'lastTestDate' | 'powerKw';
   sortOrder?: 'asc' | 'desc';
   includeArchived?: boolean;
   isArchived?: boolean;
   createdFrom?: string;
   createdTo?: string;
-  updatedSince?: string;
   updatedFrom?: string;
   updatedTo?: string;
   powerMin?: number;
@@ -135,7 +138,6 @@ const allowedQueryKeys = new Set([
   'isArchived',
   'createdFrom',
   'createdTo',
-  'updatedSince',
   'updatedFrom',
   'updatedTo',
   'powerMin',
@@ -148,6 +150,7 @@ const MAX_CUSTOM_FILTERS = 20;
 const MAX_ID_FILTERS = 100;
 const STATION_CONFLICT_FIELDS = ['status', 'location', 'lastTestDate', 'notes', 'customFields', 'attachments', 'issues'] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MAX_STATION_POWER_KW = 1000;
 
 export class StationsService {
   constructor(
@@ -176,14 +179,25 @@ export class StationsService {
         maxLength: 120,
       }) ?? undefined;
     const ids = this.parseIdsFilter(query.ids);
-    const updatedFrom = this.resolveUpdatedFrom(query.updatedFrom, query.updatedSince);
-    const isArchived = query.isArchived ?? (query.status === 'archived' ? true : undefined);
 
-    this.assertDateRange('Created', query.createdFrom, query.createdTo);
-    this.assertDateRange('Updated', updatedFrom, query.updatedTo);
-    this.assertNumericRange('Power', query.powerMin, query.powerMax);
+    const createdFrom = normalizeOptionalDateTime(query.createdFrom, 'Created from', { allowFuture: true });
+    const createdTo = normalizeOptionalDateTime(query.createdTo, 'Created to', { allowFuture: true });
+    const updatedFrom = normalizeOptionalDateTime(query.updatedFrom, 'Updated from', { allowFuture: true });
+    const updatedTo = normalizeOptionalDateTime(query.updatedTo, 'Updated to', { allowFuture: true });
+    const powerMin = normalizeOptionalFiniteNumber(query.powerMin, 'Power minimum', {
+      maximum: MAX_STATION_POWER_KW,
+      minimum: 0,
+    });
+    const powerMax = normalizeOptionalFiniteNumber(query.powerMax, 'Power maximum', {
+      maximum: MAX_STATION_POWER_KW,
+      minimum: 0,
+    });
 
-    const customFieldFilters = this.extractCustomFieldFilters(query);
+    this.assertDateRange('Created', createdFrom, createdTo);
+    this.assertDateRange('Updated', updatedFrom, updatedTo);
+    this.assertNumericRange('Power', powerMin, powerMax);
+
+    const customFieldFilters = await this.extractCustomFieldFilters(query);
     const customFilteredStationIds = await this.cfService.getStationIdsByCustomFilters(customFieldFilters);
 
     const listFilters: StationListFilter = {
@@ -199,13 +213,13 @@ export class StationsService {
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
       includeArchived: query.includeArchived,
-      isArchived,
-      createdFrom: query.createdFrom ? new Date(query.createdFrom) : undefined,
-      createdTo: query.createdTo ? new Date(query.createdTo) : undefined,
-      updatedFrom: updatedFrom ? new Date(updatedFrom) : undefined,
-      updatedTo: query.updatedTo ? new Date(query.updatedTo) : undefined,
-      powerMin: query.powerMin,
-      powerMax: query.powerMax,
+      isArchived: query.isArchived,
+      createdFrom: createdFrom ?? undefined,
+      createdTo: createdTo ?? undefined,
+      updatedFrom: updatedFrom ?? undefined,
+      updatedTo: updatedTo ?? undefined,
+      powerMin,
+      powerMax,
       customFilteredStationIds,
     };
 
@@ -223,9 +237,12 @@ export class StationsService {
       };
     }
 
-    if (view === 'compact') {
-      const summaryMap = await this.repository.getMobileSummaryMap(rows.map((row) => row.id));
+    const [summaryMap, customFieldMap] = await Promise.all([
+      this.repository.getMobileSummaryMap(rows.map((row) => row.id)),
+      view === 'compact' ? Promise.resolve(new Map<string, Record<string, unknown>>()) : this.cfService.getStationCustomFieldMap(rows.map((row) => row.id)),
+    ]);
 
+    if (view === 'compact') {
       return {
         data: rows.map((row) => this.toStationCompactResponse(row, summaryMap.get(row.id))),
         meta: {
@@ -237,10 +254,8 @@ export class StationsService {
       };
     }
 
-    const customFieldMap = await this.cfService.getStationCustomFieldMap(rows.map((row) => row.id));
-
     return {
-      data: rows.map((row) => this.toStationListResponse(row, customFieldMap.get(row.id) ?? {})),
+      data: rows.map((row) => this.toStationListResponse(row, customFieldMap.get(row.id) ?? {}, summaryMap.get(row.id))),
       meta: {
         page,
         limit,
@@ -250,19 +265,12 @@ export class StationsService {
     };
   }
 
-  private assertDateRange(label: string, from?: string, to?: string) {
+  private assertDateRange(label: string, from?: Date | null, to?: Date | null) {
     if (!from || !to) {
       return;
     }
 
-    const fromDate = new Date(from);
-    const toDate = new Date(to);
-
-    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) {
-      throw new AppError(`Invalid ${label} date range`, 400, 'INVALID_FILTER');
-    }
-
-    if (fromDate > toDate) {
+    if (from > to) {
       throw new AppError(`${label} from date must be less than or equal to to date`, 400, 'INVALID_FILTER');
     }
   }
@@ -377,8 +385,8 @@ export class StationsService {
             status: normalizedPayload.status ?? 'active',
             lastTestDate: normalizedPayload.lastTestDate ? new Date(normalizedPayload.lastTestDate) : undefined,
             notes: normalizedPayload.notes,
-            isArchived: normalizedPayload.status === 'archived',
-            archivedAt: normalizedPayload.status === 'archived' ? new Date() : undefined,
+            isArchived: false,
+            archivedAt: undefined,
             createdBy: userId,
             updatedBy: userId,
           })
@@ -388,9 +396,9 @@ export class StationsService {
           throw new Error('Failed to create station');
         }
 
-        if (normalizedPayload.customFields) {
-          await this.cfService.upsertStationCustomFieldValues(created.id, normalizedPayload.customFields, tx);
-        }
+        await this.cfService.upsertStationCustomFieldValues(created.id, normalizedPayload.customFields ?? {}, tx, {
+          enforceRequiredDefinitions: true,
+        });
 
         await writeAuditLog(
           {
@@ -408,21 +416,7 @@ export class StationsService {
       return this.getById(stationId);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        const constraint = (error as { constraint?: string }).constraint;
-
-        if (constraint === 'stations_code_unique') {
-          throw new AppError('Station code already exists', 409, 'STATION_CODE_EXISTS');
-        }
-
-        if (constraint === 'stations_qr_code_unique') {
-          throw new AppError('Station QR code already exists', 409, 'STATION_QR_EXISTS');
-        }
-
-        if (constraint === 'stations_serial_number_unique') {
-          throw new AppError('Station serial number already exists', 409, 'STATION_SERIAL_EXISTS');
-        }
-
-        throw new AppError('Station has duplicate unique fields', 409, 'STATION_DUPLICATE');
+        throw this.mapStationUniqueConstraintError(getPgError(error) ?? {});
       }
 
       throw error;
@@ -437,6 +431,31 @@ export class StationsService {
     }
 
     const normalizedPayload = this.normalizeUpdatePayload(payload);
+    const hasCustomFieldUpdates =
+      normalizedPayload.customFields !== undefined && Object.keys(normalizedPayload.customFields).length > 0;
+    const hasStationFieldUpdates = [
+      normalizedPayload.name,
+      normalizedPayload.code,
+      normalizedPayload.qrCode,
+      normalizedPayload.brand,
+      normalizedPayload.model,
+      normalizedPayload.serialNumber,
+      normalizedPayload.powerKw,
+      normalizedPayload.currentType,
+      normalizedPayload.socketType,
+      normalizedPayload.location,
+      normalizedPayload.status,
+      normalizedPayload.lastTestDate,
+      normalizedPayload.notes,
+    ].some((value) => value !== undefined);
+
+    if (!hasStationFieldUpdates && !hasCustomFieldUpdates) {
+      return this.getById(id);
+    }
+
+    if (station.isArchived && normalizedPayload.status && normalizedPayload.status !== 'inactive') {
+      throw new AppError('Archived stations must use inactive status', 400, 'INVALID_STATION_STATUS');
+    }
 
     try {
       await db.transaction(async (tx) => {
@@ -456,13 +475,8 @@ export class StationsService {
             status: normalizedPayload.status,
             lastTestDate: normalizedPayload.lastTestDate ? new Date(normalizedPayload.lastTestDate) : undefined,
             notes: normalizedPayload.notes,
-            isArchived: normalizedPayload.status ? normalizedPayload.status === 'archived' : station.isArchived,
-            archivedAt:
-              normalizedPayload.status === 'archived'
-                ? station.archivedAt ?? new Date()
-                : normalizedPayload.status
-                  ? null
-                  : undefined,
+            isArchived: station.isArchived,
+            archivedAt: station.archivedAt,
             updatedBy: userId,
             updatedAt: new Date(),
           })
@@ -491,7 +505,7 @@ export class StationsService {
       return this.getById(id);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new AppError('Station has duplicate unique fields', 409, 'STATION_DUPLICATE');
+        throw this.mapStationUniqueConstraintError(getPgError(error) ?? {});
       }
 
       throw error;
@@ -545,7 +559,7 @@ export class StationsService {
       const [archived] = await tx
         .update(stations)
         .set({
-          status: 'archived',
+          status: 'inactive',
           isArchived: true,
           archivedAt: station.archivedAt ?? new Date(),
           updatedBy: userId,
@@ -586,7 +600,7 @@ export class StationsService {
     await this.repository.updateLastTestDate(stationId, testDate);
   }
 
-  private extractCustomFieldFilters(query: StationListQuery): Record<string, string> {
+  private async extractCustomFieldFilters(query: StationListQuery): Promise<Record<string, string>> {
     const filters: Record<string, string> = {};
 
     for (const [key, rawValue] of Object.entries(query)) {
@@ -642,23 +656,6 @@ export class StationsService {
     return '';
   }
 
-  private resolveUpdatedFrom(updatedFrom?: string, updatedSince?: string) {
-    if (updatedFrom && updatedSince) {
-      const updatedFromDate = new Date(updatedFrom);
-      const updatedSinceDate = new Date(updatedSince);
-
-      if (
-        Number.isNaN(updatedFromDate.getTime()) ||
-        Number.isNaN(updatedSinceDate.getTime()) ||
-        updatedFromDate.getTime() !== updatedSinceDate.getTime()
-      ) {
-        throw new AppError('Use either updatedFrom or updatedSince, not both with different values', 400, 'INVALID_FILTER');
-      }
-    }
-
-    return updatedSince ?? updatedFrom;
-  }
-
   private parseIdsFilter(value?: string | string[]) {
     if (value === undefined) {
       return undefined;
@@ -696,6 +693,15 @@ export class StationsService {
   }
 
   private normalizeCreatePayload(payload: StationCreatePayload): StationCreatePayload {
+    const powerKw = normalizeRequiredFiniteNumber(payload.powerKw, 'Power (kW)', {
+      maximum: MAX_STATION_POWER_KW,
+      minimum: 0,
+    });
+    const lastTestDate = normalizeOptionalDateTime(payload.lastTestDate, 'Last test date');
+    const customFields = normalizeOptionalObject(payload.customFields, 'Custom fields', {
+      maxKeys: 100,
+    });
+
     return {
       ...payload,
       name: normalizeRequiredSingleLineText(payload.name, 'Station name', {
@@ -722,18 +728,30 @@ export class StationsService {
         maxLength: 150,
         minLength: 2,
       }),
+      powerKw,
       location: normalizeRequiredSingleLineText(payload.location, 'Location', {
         maxLength: 500,
         minLength: 2,
       }),
+      lastTestDate: lastTestDate?.toISOString(),
       notes:
         normalizeOptionalMultilineText(payload.notes, 'Notes', {
           maxLength: 2000,
         }) ?? undefined,
+      customFields: customFields ?? undefined,
     };
   }
 
   private normalizeUpdatePayload(payload: StationUpdatePayload): StationUpdatePayload {
+    const powerKw = normalizeOptionalFiniteNumber(payload.powerKw, 'Power (kW)', {
+      maximum: MAX_STATION_POWER_KW,
+      minimum: 0,
+    });
+    const lastTestDate = normalizeOptionalDateTime(payload.lastTestDate, 'Last test date');
+    const customFields = normalizeOptionalObject(payload.customFields, 'Custom fields', {
+      maxKeys: 100,
+    });
+
     return {
       ...payload,
       name:
@@ -778,6 +796,7 @@ export class StationsService {
               maxLength: 150,
               minLength: 2,
             }),
+      powerKw,
       location:
         payload.location === undefined
           ? undefined
@@ -785,11 +804,26 @@ export class StationsService {
               maxLength: 500,
               minLength: 2,
             }),
+      lastTestDate: lastTestDate?.toISOString(),
       notes:
         normalizeOptionalMultilineText(payload.notes, 'Notes', {
           maxLength: 2000,
         }) ?? undefined,
+      customFields: customFields ?? undefined,
     };
+  }
+
+  private mapStationUniqueConstraintError(error: { constraint?: string }) {
+    switch (error.constraint) {
+      case 'stations_code_unique':
+        return new AppError('Station code already exists', 409, 'STATION_CODE_EXISTS');
+      case 'stations_qr_code_unique':
+        return new AppError('Station QR code already exists', 409, 'STATION_QR_EXISTS');
+      case 'stations_serial_number_unique':
+        return new AppError('Station serial number already exists', 409, 'STATION_SERIAL_EXISTS');
+      default:
+        return new AppError('Station has duplicate unique fields', 409, 'STATION_DUPLICATE');
+    }
   }
 
   private getSummary(summary?: StationMobileSummary): StationMobileSummary {
@@ -806,11 +840,11 @@ export class StationsService {
   private getSyncMetadata(station: NonNullable<StationRecord>, includeConflictFields = false): StationSyncMetadata {
     return {
       updatedAt: station.updatedAt,
-      archived: station.isArchived,
+      isArchived: station.isArchived,
       archivedAt: station.archivedAt,
-      deleted: false,
+      isDeleted: false,
       deletedAt: null,
-      deleteMode: 'hard_delete',
+      deletionMode: 'hard_delete',
       ...(includeConflictFields ? { conflictFields: STATION_CONFLICT_FIELDS } : {}),
     };
   }
@@ -838,9 +872,10 @@ export class StationsService {
   private toStationListResponse(
     station: NonNullable<StationRecord>,
     customFields: Record<string, unknown>,
+    summary?: StationMobileSummary,
   ): StationFullListItemResponse {
     return {
-      ...this.getCommonStationFields(station),
+      ...this.toStationCompactResponse(station, summary),
       serialNumber: station.serialNumber,
       notes: station.notes,
       createdAt: station.createdAt,

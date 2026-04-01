@@ -2,19 +2,41 @@ import { AppError } from '../../utils/errors';
 import { isUniqueViolation } from '../../utils/db-errors';
 import { writeAuditLog } from '../../utils/audit-log';
 import {
+  normalizeOptionalObject,
   normalizeOptionalMultilineText,
   normalizeOptionalSingleLineText,
+  normalizeRequiredFiniteNumber,
   normalizeRequiredSingleLineText,
 } from '../../utils/input';
 
 import { customFieldsRepository, type CustomFieldsRepository } from './custom-fields.repository';
 
 type Definition = Awaited<ReturnType<CustomFieldsRepository['findById']>>;
+type DefinitionRecord = NonNullable<Definition>;
+type DefinitionResponse = {
+  id: string;
+  key: string;
+  label: string;
+  type: DefinitionRecord['type'];
+  options: Record<string, unknown>;
+  isRequired: boolean;
+  isFilterable: boolean;
+  isVisibleInList: boolean;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 export class CustomFieldsService {
   constructor(private readonly repository: CustomFieldsRepository = customFieldsRepository) {}
 
-  async list(active?: boolean) {
+  async list(active?: boolean): Promise<DefinitionResponse[]> {
+    const definitions = await this.repository.list(active);
+    return definitions.map((definition) => this.toDefinitionResponse(definition));
+  }
+
+  async listDefinitions(active?: boolean): Promise<DefinitionRecord[]> {
     return this.repository.list(active);
   }
 
@@ -24,7 +46,7 @@ export class CustomFieldsService {
       key: string;
       label: string;
       type: 'text' | 'number' | 'boolean' | 'select' | 'date' | 'json';
-      optionsJson?: Record<string, unknown>;
+      options?: Record<string, unknown>;
       isRequired?: boolean;
       isFilterable?: boolean;
       isVisibleInList?: boolean;
@@ -41,17 +63,23 @@ export class CustomFieldsService {
       maxLength: 140,
       minLength: 2,
     });
+    const normalizedOptions = this.normalizeDefinitionOptions(payload.type, payload.options);
+    const sortOrder = normalizeRequiredFiniteNumber(payload.sortOrder ?? 0, 'Custom field sort order', {
+      integer: true,
+      maximum: 10_000,
+      minimum: 0,
+    });
 
     try {
       const created = await this.repository.create({
         key: normalizedKey,
         label: normalizedLabel,
         type: payload.type,
-        optionsJson: payload.optionsJson ?? {},
+        optionsJson: normalizedOptions,
         isRequired: payload.isRequired ?? false,
         isFilterable: payload.isFilterable ?? false,
         isVisibleInList: payload.isVisibleInList ?? false,
-        sortOrder: payload.sortOrder ?? 0,
+        sortOrder,
         isActive: payload.isActive ?? true,
         createdBy: userId,
         updatedBy: userId,
@@ -68,7 +96,7 @@ export class CustomFieldsService {
         },
       });
 
-      return created;
+      return this.toDefinitionResponse(created);
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new AppError('Custom field key already exists', 409, 'CUSTOM_FIELD_KEY_EXISTS');
@@ -84,7 +112,7 @@ export class CustomFieldsService {
     payload: {
       label: string;
       type: 'text' | 'number' | 'boolean' | 'select' | 'date' | 'json';
-      optionsJson?: Record<string, unknown>;
+      options?: Record<string, unknown>;
       isRequired: boolean;
       isFilterable: boolean;
       isVisibleInList: boolean;
@@ -101,15 +129,21 @@ export class CustomFieldsService {
       maxLength: 140,
       minLength: 2,
     });
+    const normalizedOptions = this.normalizeDefinitionOptions(payload.type, payload.options ?? existing.optionsJson);
+    const sortOrder = normalizeRequiredFiniteNumber(payload.sortOrder, 'Custom field sort order', {
+      integer: true,
+      maximum: 10_000,
+      minimum: 0,
+    });
 
     const updated = await this.repository.updateById(id, {
       label: normalizedLabel,
       type: payload.type,
-      optionsJson: payload.optionsJson ?? existing.optionsJson,
+      optionsJson: normalizedOptions,
       isRequired: payload.isRequired,
       isFilterable: payload.isFilterable,
       isVisibleInList: payload.isVisibleInList,
-      sortOrder: payload.sortOrder,
+      sortOrder,
       updatedBy: userId,
     });
 
@@ -124,7 +158,7 @@ export class CustomFieldsService {
       action: 'custom_field.updated',
     });
 
-    return updated;
+    return this.toDefinitionResponse(updated);
   }
 
   async setActive(userId: string, id: string, isActive: boolean) {
@@ -153,7 +187,7 @@ export class CustomFieldsService {
       },
     });
 
-    return updated;
+    return this.toDefinitionResponse(updated);
   }
 
   async getStationIdsByCustomFilters(filters: Record<string, string>) {
@@ -163,9 +197,20 @@ export class CustomFieldsService {
       return null;
     }
 
+    const definitions: DefinitionRecord[] = await this.repository.findByKeys(
+      entries.map(([key]) => key),
+    );
+    const definitionMap = new Map(definitions.map((definition) => [definition.key, definition]));
+
     let matchedIds: string[] | null = null;
 
     for (const [key, value] of entries) {
+      const definition = definitionMap.get(key);
+
+      if (!definition || !definition.isActive || !definition.isFilterable) {
+        throw new AppError(`Custom field filter is not allowed for ${key}`, 400, 'INVALID_FILTER');
+      }
+
       const rows = await this.repository.getStationIdsByFilter(key, value);
       const stationIds = rows.map((row) => row.stationId);
 
@@ -190,15 +235,36 @@ export class CustomFieldsService {
 
     for (const row of rows) {
       const current = map.get(row.stationId) ?? {};
-      current[row.key] = row.valueJson;
+      current[row.key] = this.normalizeStoredCustomValue(row.type, row.valueJson);
       map.set(row.stationId, current);
     }
 
     return map;
   }
 
-  async upsertStationCustomFieldValues(stationId: string, customFields: Record<string, unknown>, executor?: any) {
+  async upsertStationCustomFieldValues(
+    stationId: string,
+    customFields: Record<string, unknown>,
+    executor?: any,
+    options?: {
+      enforceRequiredDefinitions?: boolean;
+    },
+  ) {
     const keys = Object.keys(customFields);
+    const shouldEnforceRequiredDefinitions = options?.enforceRequiredDefinitions ?? false;
+
+    if (shouldEnforceRequiredDefinitions) {
+      const requiredDefinitions: NonNullable<Definition>[] = await this.repository.listActiveRequired(executor);
+      const missingRequiredKeys = requiredDefinitions
+        .map((definition) => definition.key)
+        .filter((key) => !keys.includes(key));
+
+      if (missingRequiredKeys.length > 0) {
+        throw new AppError('Missing required custom fields', 400, 'CUSTOM_FIELD_REQUIRED', {
+          missingKeys: missingRequiredKeys,
+        });
+      }
+    }
 
     if (keys.length === 0) {
       return;
@@ -210,6 +276,10 @@ export class CustomFieldsService {
     for (const key of keys) {
       if (!definitionMap.has(key)) {
         throw new AppError(`Unknown custom field key: ${key}`, 400, 'CUSTOM_FIELD_UNKNOWN');
+      }
+
+      if (!definitionMap.get(key)?.isActive) {
+        throw new AppError(`Custom field ${key} is inactive`, 400, 'CUSTOM_FIELD_INACTIVE');
       }
     }
 
@@ -243,7 +313,7 @@ export class CustomFieldsService {
         );
       }
       case 'number': {
-        if (typeof value !== 'number' || Number.isNaN(value)) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) {
           throw new AppError(`Custom field ${definition.key} must be a number`, 400, 'CUSTOM_FIELD_INVALID_TYPE');
         }
 
@@ -288,7 +358,7 @@ export class CustomFieldsService {
           throw new AppError(`Custom field ${definition.key} must be a valid date string`, 400, 'CUSTOM_FIELD_INVALID_TYPE');
         }
 
-        return value;
+        return new Date(value).toISOString();
       }
       case 'json': {
         return value;
@@ -307,6 +377,76 @@ export class CustomFieldsService {
     }
 
     return optionsValue.filter((item): item is string => typeof item === 'string');
+  }
+
+  private normalizeDefinitionOptions(type: DefinitionRecord['type'], value: unknown) {
+    const normalizedOptions = normalizeOptionalObject(value, 'Custom field options', {
+      maxKeys: 20,
+    });
+    const options = normalizedOptions ?? {};
+
+    if (type !== 'select') {
+      return options;
+    }
+
+    const rawOptions = options.options;
+
+    if (!Array.isArray(rawOptions) || rawOptions.length === 0) {
+      throw new AppError(
+        'Select custom fields must define a non-empty options array',
+        400,
+        'CUSTOM_FIELD_INVALID_OPTIONS',
+      );
+    }
+
+    const normalizedSelectOptions = Array.from(
+      new Set(
+        rawOptions.map((option) => {
+          if (typeof option !== 'string') {
+            throw new AppError('Select custom field options must be strings', 400, 'CUSTOM_FIELD_INVALID_OPTIONS');
+          }
+
+          return normalizeRequiredSingleLineText(option, 'Custom field option', {
+            maxLength: 200,
+            minLength: 1,
+          });
+        }),
+      ),
+    );
+
+    if (normalizedSelectOptions.length !== rawOptions.length) {
+      throw new AppError('Select custom field options must be unique', 400, 'CUSTOM_FIELD_INVALID_OPTIONS');
+    }
+
+    return {
+      ...options,
+      options: normalizedSelectOptions,
+    };
+  }
+
+  private normalizeStoredCustomValue(type: DefinitionRecord['type'], value: unknown) {
+    if (type === 'date' && typeof value === 'string' && !Number.isNaN(Date.parse(value))) {
+      return new Date(value).toISOString();
+    }
+
+    return value;
+  }
+
+  private toDefinitionResponse(definition: DefinitionRecord): DefinitionResponse {
+    return {
+      id: definition.id,
+      key: definition.key,
+      label: definition.label,
+      type: definition.type,
+      options: definition.optionsJson,
+      isRequired: definition.isRequired,
+      isFilterable: definition.isFilterable,
+      isVisibleInList: definition.isVisibleInList,
+      sortOrder: definition.sortOrder,
+      isActive: definition.isActive,
+      createdAt: definition.createdAt,
+      updatedAt: definition.updatedAt,
+    };
   }
 }
 

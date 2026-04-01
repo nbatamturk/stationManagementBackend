@@ -7,8 +7,8 @@ type AuditLogsListQuery = {
   entityId?: string;
   actorUserId?: string;
   action?: string;
-  fromDate?: string;
-  toDate?: string;
+  createdFrom?: string;
+  createdTo?: string;
   page?: number;
   limit?: number;
   sortBy?: 'createdAt';
@@ -22,8 +22,8 @@ export class AuditLogsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
-    if (query.fromDate && query.toDate && new Date(query.fromDate) > new Date(query.toDate)) {
-      throw new AppError('fromDate must be less than or equal to toDate', 400, 'INVALID_FILTER');
+    if (query.createdFrom && query.createdTo && new Date(query.createdFrom) > new Date(query.createdTo)) {
+      throw new AppError('createdFrom must be less than or equal to createdTo', 400, 'INVALID_FILTER');
     }
 
     const { rows, total } = await this.repository.list({
@@ -31,8 +31,8 @@ export class AuditLogsService {
       entityId: query.entityId,
       actorUserId: query.actorUserId,
       action: query.action,
-      fromDate: query.fromDate ? new Date(query.fromDate) : undefined,
-      toDate: query.toDate ? new Date(query.toDate) : undefined,
+      createdFrom: query.createdFrom ? new Date(query.createdFrom) : undefined,
+      createdTo: query.createdTo ? new Date(query.createdTo) : undefined,
       page,
       limit,
       sortBy: query.sortBy ?? 'createdAt',
@@ -40,7 +40,15 @@ export class AuditLogsService {
     });
 
     return {
-      data: rows,
+      data: rows.map((row) => ({
+        id: row.id,
+        actorUserId: row.actorUserId,
+        entityType: row.entityType,
+        entityId: row.entityId,
+        action: row.action,
+        metadata: row.metadataJson,
+        createdAt: row.createdAt,
+      })),
       meta: {
         page,
         limit,

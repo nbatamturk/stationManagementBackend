@@ -7,5 +7,5 @@ export const stationsClient = {
   create: (payload: Partial<Station>) => apiFetch<SuccessResponse<Station>>('/stations', { method: 'POST', body: JSON.stringify(payload) }),
   update: (id: string, payload: Partial<Station>) => apiFetch<SuccessResponse<Station>>(`/stations/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   archive: (id: string) => apiFetch<SuccessResponse<Station>>(`/stations/${id}/archive`, { method: 'POST' }),
-  remove: (id: string) => apiFetch<{ success: boolean; id: string }>(`/stations/${id}`, { method: 'DELETE' }),
+  remove: (id: string) => apiFetch<SuccessResponse<{ success: boolean; id: string }>>(`/stations/${id}`, { method: 'DELETE' }),
 };

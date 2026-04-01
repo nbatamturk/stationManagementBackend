@@ -1,6 +1,9 @@
 import { Type } from '@sinclair/typebox';
 
+import { attachmentTargetTypeValues } from '../../contracts/domain';
 import {
+  createCollectionResponseSchema,
+  createEnumSchema,
   createSuccessResponseSchema,
   deleteResultDataSchema,
   isoDateTimeSchema,
@@ -21,11 +24,7 @@ export const attachmentIdParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
-const attachmentTargetTypeSchema = Type.Union([
-  Type.Literal('station'),
-  Type.Literal('issue'),
-  Type.Literal('testHistory'),
-]);
+const attachmentTargetTypeSchema = createEnumSchema(attachmentTargetTypeValues);
 
 export const attachmentRecordSchema = Type.Object(
   {
@@ -46,7 +45,7 @@ export const attachmentRecordSchema = Type.Object(
   { additionalProperties: false },
 );
 
-export const attachmentListResponseSchema = createSuccessResponseSchema(Type.Array(attachmentRecordSchema));
+export const attachmentListResponseSchema = createCollectionResponseSchema(attachmentRecordSchema);
 
 export const attachmentResponseSchema = createSuccessResponseSchema(attachmentRecordSchema);
 

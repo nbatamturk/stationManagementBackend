@@ -1,25 +1,13 @@
 import { Type } from '@sinclair/typebox';
 
-import { createSuccessResponseSchema, isoDateTimeSchema, uuidSchema } from '../../utils/api-schemas';
+import { currentTypeValues, socketTypeValues, stationStatusValues } from '../../contracts/domain';
+import { createEnumSchema, createSuccessResponseSchema, isoDateTimeSchema, uuidSchema } from '../../utils/api-schemas';
 
-const stationStatusSchema = Type.Union([
-  Type.Literal('active'),
-  Type.Literal('maintenance'),
-  Type.Literal('inactive'),
-  Type.Literal('faulty'),
-  Type.Literal('archived'),
-]);
+const stationStatusSchema = createEnumSchema(stationStatusValues);
 
-const currentTypeSchema = Type.Union([Type.Literal('AC'), Type.Literal('DC')]);
+const currentTypeSchema = createEnumSchema(currentTypeValues);
 
-const socketTypeSchema = Type.Union([
-  Type.Literal('Type2'),
-  Type.Literal('CCS2'),
-  Type.Literal('CHAdeMO'),
-  Type.Literal('GBT'),
-  Type.Literal('NACS'),
-  Type.Literal('Other'),
-]);
+const socketTypeSchema = createEnumSchema(socketTypeValues);
 
 const importIssueSchema = Type.Object(
   {

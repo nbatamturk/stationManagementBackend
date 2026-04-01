@@ -46,6 +46,10 @@ const mapMultipartError = (request: FastifyRequest, error: unknown) => {
     throw new AppError('Only one attachment file is allowed', 400, 'INVALID_ATTACHMENT_UPLOAD');
   }
 
+  if (error instanceof request.server.multipartErrors.FieldsLimitError) {
+    throw new AppError('Attachment upload cannot include extra form fields', 400, 'INVALID_ATTACHMENT_UPLOAD');
+  }
+
   if (error instanceof request.server.multipartErrors.PartsLimitError) {
     throw new AppError('Attachment upload contains too many form parts', 400, 'INVALID_ATTACHMENT_UPLOAD');
   }
@@ -64,8 +68,10 @@ const readAttachmentUpload = async (request: FastifyRequest): Promise<Attachment
     part = await request.file({
       throwFileSizeLimit: true,
       limits: {
+        fields: 0,
         files: 1,
         fileSize: attachmentMaxFileSizeBytes,
+        parts: 1,
       },
     });
   } catch (error) {
@@ -279,6 +285,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (fastify) => {
       reply.header('content-type', download.mimeType);
       reply.header('content-length', String(download.sizeBytes));
       reply.header('content-disposition', download.contentDisposition);
+      reply.header('x-content-type-options', 'nosniff');
 
       return reply.send(createReadStream(download.absolutePath));
     },

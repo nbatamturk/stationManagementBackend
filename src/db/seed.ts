@@ -287,7 +287,7 @@ const seed = async () => {
       currentType: 'DC',
       socketType: 'CHAdeMO',
       location: 'Istanbul Storage Depot',
-      status: 'archived',
+      status: 'inactive',
       isArchived: true,
       archivedAt: new Date('2025-12-01T09:00:00.000Z'),
       lastTestDate: new Date('2025-11-20T10:00:00.000Z'),

@@ -61,7 +61,7 @@ export const testHistoryRoutes: FastifyPluginAsync = async (fastify) => {
         testDate?: string;
         result: 'pass' | 'fail' | 'warning';
         notes?: string;
-        metricsJson?: Record<string, unknown>;
+        metrics?: Record<string, unknown>;
       };
 
       const data = await testHistoryService.create(getCurrentUserId(request), params.id, body);
@@ -91,7 +91,7 @@ export const testHistoryRoutes: FastifyPluginAsync = async (fastify) => {
         testDate?: string;
         result?: 'pass' | 'fail' | 'warning';
         notes?: string | null;
-        metricsJson?: Record<string, unknown>;
+        metrics?: Record<string, unknown>;
       };
 
       const data = await testHistoryService.update(getCurrentUserId(request), params.id, body);

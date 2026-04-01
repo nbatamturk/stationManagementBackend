@@ -13,6 +13,7 @@ import {
 
 import { attachmentsService } from '../attachments/attachments.service';
 import { stationsService, type StationsService } from '../stations/stations.service';
+import { usersRepository, type UsersRepository } from '../users/users.repository';
 import { issuesRepository, type IssuesRepository } from './issues.repository';
 
 type CreateIssuePayload = {
@@ -34,6 +35,7 @@ export class IssuesService {
   constructor(
     private readonly repository: IssuesRepository = issuesRepository,
     private readonly stationService: StationsService = stationsService,
+    private readonly usersRepo: UsersRepository = usersRepository,
   ) {}
 
   async listByStation(stationId: string) {
@@ -53,6 +55,7 @@ export class IssuesService {
 
   async create(userId: string, stationId: string, payload: CreateIssuePayload) {
     await this.stationService.ensureExists(stationId);
+    await this.assertValidAssignee(payload.assignedTo);
     const normalizedPayload = {
       ...payload,
       title: normalizeRequiredSingleLineText(payload.title, 'Issue title', {
@@ -130,6 +133,12 @@ export class IssuesService {
       }),
       status: payload.status,
     };
+
+    if (Object.keys(payload).length === 0) {
+      return issue;
+    }
+
+    await this.assertValidAssignee(payload.assignedTo);
 
     try {
       const updated = await db.transaction(async (tx) => {
@@ -233,6 +242,18 @@ export class IssuesService {
       success: true,
       id: issueId,
     };
+  }
+
+  private async assertValidAssignee(assignedTo?: string | null) {
+    if (assignedTo === undefined || assignedTo === null) {
+      return;
+    }
+
+    const user = await this.usersRepo.findById(assignedTo);
+
+    if (!user || !user.isActive || user.role === 'viewer') {
+      throw new AppError('Assigned user must be an active admin or operator', 400, 'INVALID_ASSIGNEE');
+    }
   }
 }
 
