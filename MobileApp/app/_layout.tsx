@@ -1,6 +1,6 @@
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useEffect } from 'react';
 
 import { AppScreen, LoadingState } from '@/components';
 import { AuthProvider, useAuth } from '@/features/auth';
@@ -16,6 +16,25 @@ const stackScreenOptions = {
 
 const RootNavigator = (): React.JSX.Element => {
   const { status, isAuthenticated } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
+
+  useEffect(() => {
+    if (status === 'loading') {
+      return;
+    }
+
+    const isOnLoginScreen = segments[0] === 'login';
+
+    if (!isAuthenticated && !isOnLoginScreen) {
+      router.replace('/login');
+      return;
+    }
+
+    if (isAuthenticated && isOnLoginScreen) {
+      router.replace('/');
+    }
+  }, [isAuthenticated, router, segments, status]);
 
   if (status === 'loading') {
     return (
@@ -25,16 +44,9 @@ const RootNavigator = (): React.JSX.Element => {
     );
   }
 
-  if (!isAuthenticated) {
-    return (
-      <Stack screenOptions={stackScreenOptions}>
-        <Stack.Screen name="login" options={{ headerShown: false }} />
-      </Stack>
-    );
-  }
-
   return (
     <Stack screenOptions={stackScreenOptions}>
+      <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="stations/[id]" options={{ title: 'Station Detail' }} />
       <Stack.Screen name="stations/edit" options={{ title: 'Station Create / Edit' }} />

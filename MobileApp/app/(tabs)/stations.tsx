@@ -3,17 +3,19 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
+  AppButton,
   AppCard,
   AppScreen,
   AppTextInput,
   EmptyState,
   LoadingState,
   OptionChip,
+  SectionHeader,
   StatusBadge,
   colors,
 } from '@/components';
 import { getCustomFieldDefinitions } from '@/features/custom-fields';
-import { getStationBrands, getStationList, getStationModels } from '@/features/stations';
+import { getStationFilterOptions, getStationList } from '@/features/stations';
 import type { StationListItem } from '@/features/stations';
 import type {
   CustomFieldDefinition,
@@ -70,6 +72,32 @@ const isValidDateOnly = (value: string): boolean => {
   return !Number.isNaN(new Date(value).getTime());
 };
 
+type ActiveFilterTag = {
+  id: string;
+  label: string;
+  type: 'search' | 'status' | 'brand' | 'model' | 'currentType' | 'sort' | 'custom';
+  fieldId?: string;
+};
+
+const sortLabels: Record<StationSortBy, string> = {
+  name: 'Name',
+  updatedAt: 'Updated',
+  powerKw: 'Power',
+};
+
+const currentTypeLabels: Record<StationCurrentType, string> = {
+  AC: 'AC',
+  DC: 'DC',
+};
+
+const statusLabels: Record<Exclude<StationListStatusFilter, 'all'>, string> = {
+  active: 'Active',
+  maintenance: 'Maintenance',
+  inactive: 'Inactive',
+  faulty: 'Faulty',
+  archived: 'Archived',
+};
+
 export default function StationListScreen(): React.JSX.Element {
   const router = useRouter();
   const [filters, setFilters] = useState<StationListFilters>(createDefaultFilters());
@@ -80,24 +108,31 @@ export default function StationListScreen(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [metadataLoading, setMetadataLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const loadFilterMetadata = useCallback(async () => {
     setMetadataLoading(true);
     setErrorMessage('');
 
     try {
-      const [brandList, modelList, definitions] = await Promise.all([
-        getStationBrands(),
-        getStationModels(),
+      const [filterOptions, definitions] = await Promise.all([
+        getStationFilterOptions({
+          searchText: filters.searchText,
+          status: filters.status,
+          brand: filters.brand,
+          currentType: filters.currentType,
+        }),
         getCustomFieldDefinitions(true),
       ]);
       const filterableDefinitions = definitions.filter((definition) => definition.isFilterable);
       const definitionTypeById = new Map(
         filterableDefinitions.map((definition) => [definition.id, definition.type]),
       );
+      const allowedBrands = new Set(filterOptions.brands);
+      const allowedModels = new Set(filterOptions.models);
 
-      setBrands(brandList);
-      setModels(modelList);
+      setBrands(filterOptions.brands);
+      setModels(filterOptions.models);
       setCustomFilterDefinitions(filterableDefinitions);
       setFilters((prev) => {
         const allowedIds = new Set(filterableDefinitions.map((definition) => definition.id));
@@ -120,12 +155,21 @@ export default function StationListScreen(): React.JSX.Element {
             );
           });
 
+        const nextBrand =
+          prev.brand !== 'all' && !allowedBrands.has(prev.brand) ? 'all' : prev.brand;
+        const nextModel =
+          prev.model !== 'all' && !allowedModels.has(prev.model) ? 'all' : prev.model;
+
         if (isUnchanged) {
-          return prev;
+          if (nextBrand === prev.brand && nextModel === prev.model) {
+            return prev;
+          }
         }
 
         return {
           ...prev,
+          brand: nextBrand,
+          model: nextModel,
           customFieldFilters: nextCustomFilters,
         };
       });
@@ -138,7 +182,7 @@ export default function StationListScreen(): React.JSX.Element {
     } finally {
       setMetadataLoading(false);
     }
-  }, []);
+  }, [filters.brand, filters.currentType, filters.searchText, filters.status]);
 
   const loadStations = useCallback(async () => {
     setLoading(true);
@@ -217,6 +261,91 @@ export default function StationListScreen(): React.JSX.Element {
     );
   }, [filters]);
 
+  const activeFilterTags = useMemo<ActiveFilterTag[]>(() => {
+    const tags: ActiveFilterTag[] = [];
+
+    if (filters.searchText.trim()) {
+      tags.push({
+        id: 'search',
+        label: `Search: ${filters.searchText.trim()}`,
+        type: 'search',
+      });
+    }
+
+    if (filters.status !== 'all') {
+      tags.push({
+        id: 'status',
+        label: `Status: ${statusLabels[filters.status]}`,
+        type: 'status',
+      });
+    }
+
+    if (filters.currentType !== 'all') {
+      tags.push({
+        id: 'currentType',
+        label: `Current: ${currentTypeLabels[filters.currentType]}`,
+        type: 'currentType',
+      });
+    }
+
+    if (filters.brand !== 'all') {
+      tags.push({
+        id: 'brand',
+        label: `Brand: ${filters.brand}`,
+        type: 'brand',
+      });
+    }
+
+    if (filters.model !== 'all') {
+      tags.push({
+        id: 'model',
+        label: `Model: ${filters.model}`,
+        type: 'model',
+      });
+    }
+
+    if (filters.sortBy !== 'updatedAt') {
+      tags.push({
+        id: 'sort',
+        label: `Sort: ${sortLabels[filters.sortBy]}`,
+        type: 'sort',
+      });
+    }
+
+    for (const filter of filters.customFieldFilters) {
+      const definition = customFilterDefinitions.find((item) => item.id === filter.fieldId);
+
+      if (!definition || !filter.value.trim()) {
+        continue;
+      }
+
+      tags.push({
+        id: `custom:${filter.fieldId}`,
+        label: `${definition.label}: ${filter.value.trim()}`,
+        type: 'custom',
+        fieldId: filter.fieldId,
+      });
+    }
+
+    return tags;
+  }, [customFilterDefinitions, filters]);
+
+  const advancedFilterCount = useMemo(() => {
+    let total = 0;
+
+    if (filters.brand !== 'all') {
+      total += 1;
+    }
+
+    if (filters.model !== 'all') {
+      total += 1;
+    }
+
+    total += filters.customFieldFilters.filter((item) => item.value.trim().length > 0).length;
+
+    return total;
+  }, [filters.brand, filters.customFieldFilters, filters.model]);
+
   const setCustomFilterValue = useCallback(
     (definition: CustomFieldDefinition, value: string) => {
       setFilters((prev) => {
@@ -244,11 +373,67 @@ export default function StationListScreen(): React.JSX.Element {
     [],
   );
 
+  const clearAllFilters = useCallback(() => {
+    setFilters(createDefaultFilters());
+  }, []);
+
+  const clearActiveFilter = useCallback((tag: ActiveFilterTag) => {
+    switch (tag.type) {
+      case 'search':
+        setFilters((prev) => ({ ...prev, searchText: '' }));
+        return;
+      case 'status':
+        setFilters((prev) => ({ ...prev, status: 'all' }));
+        return;
+      case 'brand':
+        setFilters((prev) => ({ ...prev, brand: 'all' }));
+        return;
+      case 'model':
+        setFilters((prev) => ({ ...prev, model: 'all' }));
+        return;
+      case 'currentType':
+        setFilters((prev) => ({ ...prev, currentType: 'all' }));
+        return;
+      case 'sort':
+        setFilters((prev) => ({ ...prev, sortBy: 'updatedAt' }));
+        return;
+      case 'custom':
+        if (!tag.fieldId) {
+          return;
+        }
+
+        setFilters((prev) => ({
+          ...prev,
+          customFieldFilters: prev.customFieldFilters.filter((item) => item.fieldId !== tag.fieldId),
+        }));
+    }
+  }, []);
+
   return (
     <AppScreen>
+      <SectionHeader
+        title="Stations"
+        subtitle="Search backend records quickly, then open advanced filters only when needed."
+      />
+
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-      <AppCard>
+      <AppCard style={styles.filterCard}>
+        <View style={styles.filterHeaderRow}>
+          <View style={styles.filterHeaderText}>
+            <Text style={styles.filterTitle}>Find Stations</Text>
+            <Text style={styles.filterSubtitle}>
+              Search by name, code, serial number, or narrow the list with guided filters.
+            </Text>
+          </View>
+          <AppButton
+            label={showAdvancedFilters ? 'Hide More' : 'More Filters'}
+            variant="secondary"
+            onPress={() => setShowAdvancedFilters((prev) => !prev)}
+            style={styles.filterHeaderButton}
+          />
+        </View>
+
         <AppTextInput
           label="Search"
           value={filters.searchText}
@@ -258,7 +443,7 @@ export default function StationListScreen(): React.JSX.Element {
         />
 
         <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Status</Text>
+          <Text style={styles.filterLabel}>Quick Status</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
             {statusOptions.map((option) => (
               <OptionChip
@@ -266,34 +451,6 @@ export default function StationListScreen(): React.JSX.Element {
                 label={option.label}
                 selected={filters.status === option.value}
                 onPress={() => setFilters((prev) => ({ ...prev, status: option.value }))}
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Brand</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-            {brandOptions.map((brand) => (
-              <OptionChip
-                key={brand}
-                label={brand === 'all' ? 'All' : brand}
-                selected={filters.brand === brand}
-                onPress={() => setFilters((prev) => ({ ...prev, brand }))}
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Model</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-            {modelOptions.map((model) => (
-              <OptionChip
-                key={model}
-                label={model === 'all' ? 'All' : model}
-                selected={filters.model === model}
-                onPress={() => setFilters((prev) => ({ ...prev, model }))}
               />
             ))}
           </ScrollView>
@@ -313,134 +470,218 @@ export default function StationListScreen(): React.JSX.Element {
           </View>
         </View>
 
-        <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Sort</Text>
-          <View style={styles.inlineRow}>
-            {sortOptions.map((option) => (
-              <OptionChip
-                key={option.value}
-                label={option.label}
-                selected={filters.sortBy === option.value}
-                onPress={() => setFilters((prev) => ({ ...prev, sortBy: option.value }))}
-              />
-            ))}
+        <View style={styles.filterFooterRow}>
+          <View style={styles.resultsBox}>
+            <Text style={styles.resultsValue}>{loading ? '...' : stations.length}</Text>
+            <Text style={styles.resultsLabel}>
+              {loading ? 'Refreshing results' : stations.length === 1 ? 'Station shown' : 'Stations shown'}
+            </Text>
           </View>
+          {hasActiveFilters ? (
+            <AppButton
+              label="Clear All"
+              variant="secondary"
+              onPress={clearAllFilters}
+              style={styles.clearButton}
+            />
+          ) : null}
         </View>
 
-        {customFilterDefinitions.length > 0 ? (
-          <View style={styles.filterGroup}>
-            <Text style={styles.filterLabel}>Custom Field Filters</Text>
+        {activeFilterTags.length > 0 ? (
+          <View style={styles.activeFilterSection}>
+            <View style={styles.activeFilterHeader}>
+              <Text style={styles.activeFilterTitle}>Active Filters</Text>
+              <Text style={styles.activeFilterCount}>{activeFilterTags.length} applied</Text>
+            </View>
+            <View style={styles.activeFilterWrap}>
+              {activeFilterTags.map((tag) => (
+                <Pressable
+                  key={tag.id}
+                  onPress={() => clearActiveFilter(tag)}
+                  style={({ pressed }) => [styles.activeFilterPill, pressed && styles.pressed]}
+                >
+                  <Text style={styles.activeFilterPillText}>{tag.label}</Text>
+                  <Text style={styles.activeFilterPillAction}>Clear</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
-            {customFilterDefinitions.map((definition) => {
-              const currentValue = customFilterMap[definition.id]?.value ?? '';
-              const fieldError = customFilterErrors[definition.id];
+        {showAdvancedFilters ? (
+          <View style={styles.advancedFiltersPanel}>
+            <View style={styles.advancedFiltersHeader}>
+              <View style={styles.advancedFiltersHeaderText}>
+                <Text style={styles.advancedFiltersTitle}>More Filters</Text>
+                <Text style={styles.advancedFiltersSubtitle}>
+                  Refine by brand, model, sorting, and custom field values.
+                </Text>
+              </View>
+              {advancedFilterCount > 0 ? (
+                <View style={styles.advancedBadge}>
+                  <Text style={styles.advancedBadgeText}>{advancedFilterCount}</Text>
+                </View>
+              ) : null}
+            </View>
 
-              if (definition.type === 'boolean') {
-                return (
-                  <View key={definition.id} style={styles.customFilterItem}>
-                    <Text style={styles.customFilterLabel}>{definition.label}</Text>
-                    <View style={styles.inlineRow}>
-                      <OptionChip
-                        label="All"
-                        selected={!currentValue}
-                        onPress={() => setCustomFilterValue(definition, '')}
-                      />
-                      <OptionChip
-                        label="Yes"
-                        selected={currentValue === 'true'}
-                        onPress={() => setCustomFilterValue(definition, 'true')}
-                      />
-                      <OptionChip
-                        label="No"
-                        selected={currentValue === 'false'}
-                        onPress={() => setCustomFilterValue(definition, 'false')}
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterLabel}>Brand</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                {brandOptions.map((brand) => (
+                  <OptionChip
+                    key={brand}
+                    label={brand === 'all' ? 'All' : brand}
+                    selected={filters.brand === brand}
+                    onPress={() => setFilters((prev) => ({ ...prev, brand }))}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterLabel}>Model</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                {modelOptions.map((model) => (
+                  <OptionChip
+                    key={model}
+                    label={model === 'all' ? 'All' : model}
+                    selected={filters.model === model}
+                    onPress={() => setFilters((prev) => ({ ...prev, model }))}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterLabel}>Sort</Text>
+              <View style={styles.inlineRow}>
+                {sortOptions.map((option) => (
+                  <OptionChip
+                    key={option.value}
+                    label={option.label}
+                    selected={filters.sortBy === option.value}
+                    onPress={() => setFilters((prev) => ({ ...prev, sortBy: option.value }))}
+                  />
+                ))}
+              </View>
+            </View>
+
+            {customFilterDefinitions.length > 0 ? (
+              <View style={styles.filterGroup}>
+                <Text style={styles.filterLabel}>Custom Field Filters</Text>
+
+                {customFilterDefinitions.map((definition) => {
+                  const currentValue = customFilterMap[definition.id]?.value ?? '';
+                  const fieldError = customFilterErrors[definition.id];
+
+                  if (definition.type === 'boolean') {
+                    return (
+                      <View key={definition.id} style={styles.customFilterItem}>
+                        <Text style={styles.customFilterLabel}>{definition.label}</Text>
+                        <View style={styles.inlineRow}>
+                          <OptionChip
+                            label="All"
+                            selected={!currentValue}
+                            onPress={() => setCustomFilterValue(definition, '')}
+                          />
+                          <OptionChip
+                            label="Yes"
+                            selected={currentValue === 'true'}
+                            onPress={() => setCustomFilterValue(definition, 'true')}
+                          />
+                          <OptionChip
+                            label="No"
+                            selected={currentValue === 'false'}
+                            onPress={() => setCustomFilterValue(definition, 'false')}
+                          />
+                        </View>
+                      </View>
+                    );
+                  }
+
+                  if (definition.type === 'select') {
+                    const options = parseSelectOptions(definition.optionsJson);
+
+                    return (
+                      <View key={definition.id} style={styles.customFilterItem}>
+                        <Text style={styles.customFilterLabel}>{definition.label}</Text>
+                        {options.length === 0 ? (
+                          <Text style={styles.filterHintText}>
+                            This field has no select options yet. Configure options in Custom Fields.
+                          </Text>
+                        ) : (
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.chipRow}
+                          >
+                            <OptionChip
+                              label="All"
+                              selected={!currentValue}
+                              onPress={() => setCustomFilterValue(definition, '')}
+                            />
+                            {options.map((option) => (
+                              <OptionChip
+                                key={option}
+                                label={option}
+                                selected={currentValue === option}
+                                onPress={() => setCustomFilterValue(definition, option)}
+                              />
+                            ))}
+                          </ScrollView>
+                        )}
+                      </View>
+                    );
+                  }
+
+                  if (definition.type === 'number') {
+                    return (
+                      <View key={definition.id} style={styles.customFilterItem}>
+                        <AppTextInput
+                          label={`${definition.label} (Number)`}
+                          value={currentValue}
+                          onChangeText={(value) => setCustomFilterValue(definition, value)}
+                          placeholder="Exact numeric value"
+                          keyboardType="numeric"
+                          autoCapitalize="none"
+                          error={fieldError}
+                        />
+                      </View>
+                    );
+                  }
+
+                  if (definition.type === 'date') {
+                    return (
+                      <View key={definition.id} style={styles.customFilterItem}>
+                        <AppTextInput
+                          label={`${definition.label} (Date)`}
+                          value={currentValue}
+                          onChangeText={(value) => setCustomFilterValue(definition, value)}
+                          placeholder="YYYY-MM-DD"
+                          autoCapitalize="none"
+                          error={fieldError}
+                        />
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View key={definition.id} style={styles.customFilterItem}>
+                      <AppTextInput
+                        label={`${definition.label} (Text)`}
+                        value={currentValue}
+                        onChangeText={(value) => setCustomFilterValue(definition, value)}
+                        placeholder="Contains..."
+                        autoCapitalize="none"
                       />
                     </View>
-                  </View>
-                );
-              }
-
-              if (definition.type === 'select') {
-                const options = parseSelectOptions(definition.optionsJson);
-
-                return (
-                  <View key={definition.id} style={styles.customFilterItem}>
-                    <Text style={styles.customFilterLabel}>{definition.label}</Text>
-                    {options.length === 0 ? (
-                      <Text style={styles.filterHintText}>
-                        This field has no select options yet. Configure options in Custom Fields.
-                      </Text>
-                    ) : (
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.chipRow}
-                      >
-                        <OptionChip
-                          label="All"
-                          selected={!currentValue}
-                          onPress={() => setCustomFilterValue(definition, '')}
-                        />
-                        {options.map((option) => (
-                          <OptionChip
-                            key={option}
-                            label={option}
-                            selected={currentValue === option}
-                            onPress={() => setCustomFilterValue(definition, option)}
-                          />
-                        ))}
-                      </ScrollView>
-                    )}
-                  </View>
-                );
-              }
-
-              if (definition.type === 'number') {
-                return (
-                  <View key={definition.id} style={styles.customFilterItem}>
-                    <AppTextInput
-                      label={`${definition.label} (Number)`}
-                      value={currentValue}
-                      onChangeText={(value) => setCustomFilterValue(definition, value)}
-                      placeholder="Exact numeric value"
-                      keyboardType="numeric"
-                      autoCapitalize="none"
-                      error={fieldError}
-                    />
-                  </View>
-                );
-              }
-
-              if (definition.type === 'date') {
-                return (
-                  <View key={definition.id} style={styles.customFilterItem}>
-                    <AppTextInput
-                      label={`${definition.label} (Date)`}
-                      value={currentValue}
-                      onChangeText={(value) => setCustomFilterValue(definition, value)}
-                      placeholder="YYYY-MM-DD"
-                      autoCapitalize="none"
-                      error={fieldError}
-                    />
-                  </View>
-                );
-              }
-
-              return (
-                <View key={definition.id} style={styles.customFilterItem}>
-                  <AppTextInput
-                    label={`${definition.label} (Text)`}
-                    value={currentValue}
-                    onChangeText={(value) => setCustomFilterValue(definition, value)}
-                    placeholder="Contains..."
-                    autoCapitalize="none"
-                  />
-                </View>
-              );
-            })}
+                  );
+                })}
+              </View>
+            ) : metadataLoading ? (
+              <Text style={styles.filterHintText}>Loading custom field filters...</Text>
+            ) : null}
           </View>
-        ) : metadataLoading ? (
-          <Text style={styles.filterHintText}>Loading custom field filters...</Text>
         ) : null}
       </AppCard>
 
@@ -496,6 +737,32 @@ export default function StationListScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
+  filterCard: {
+    gap: 14,
+  },
+  filterHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  filterHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
+  filterTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  filterSubtitle: {
+    color: colors.mutedText,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  filterHeaderButton: {
+    minWidth: 118,
+  },
   filterGroup: {
     gap: 6,
   },
@@ -512,6 +779,116 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  filterFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  resultsBox: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#F8FBFF',
+    gap: 2,
+  },
+  resultsValue: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  resultsLabel: {
+    color: colors.mutedText,
+    fontSize: 12,
+  },
+  clearButton: {
+    minWidth: 110,
+  },
+  activeFilterSection: {
+    gap: 8,
+  },
+  activeFilterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  activeFilterTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  activeFilterCount: {
+    color: colors.mutedText,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  activeFilterWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  activeFilterPill: {
+    borderWidth: 1,
+    borderColor: '#CFE0FF',
+    backgroundColor: '#F3F8FF',
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 2,
+  },
+  activeFilterPillText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  activeFilterPillAction: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  advancedFiltersPanel: {
+    gap: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: 14,
+  },
+  advancedFiltersHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  advancedFiltersHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
+  advancedFiltersTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  advancedFiltersSubtitle: {
+    color: colors.mutedText,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  advancedBadge: {
+    minWidth: 28,
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  advancedBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '800',
   },
   listItem: {
     borderWidth: 1,

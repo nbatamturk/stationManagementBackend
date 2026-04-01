@@ -53,6 +53,11 @@ type StationListQuery = Record<string, string | number | boolean | undefined>;
 
 const DEFAULT_PAGE_SIZE = 100;
 
+type StationFilterMetadataFilters = Pick<
+  StationListFilters,
+  'searchText' | 'status' | 'brand' | 'currentType'
+>;
+
 const formatCustomFieldValue = (value: unknown): string => {
   if (value === null || value === undefined) {
     return '';
@@ -183,6 +188,24 @@ const buildStationListQuery = async (
   return query;
 };
 
+const buildMetadataQuery = (
+  filters: Partial<StationFilterMetadataFilters>,
+): StationListQuery => {
+  const query: StationListQuery = {
+    search: filters.searchText?.trim() || undefined,
+    currentType: filters.currentType && filters.currentType !== 'all' ? filters.currentType : undefined,
+    includeArchived: filters.status === 'archived',
+    isArchived: filters.status === 'archived' ? true : undefined,
+    status:
+      filters.status && filters.status !== 'all' && filters.status !== 'archived'
+        ? filters.status
+        : undefined,
+    brand: filters.brand && filters.brand !== 'all' ? filters.brand : undefined,
+  };
+
+  return query;
+};
+
 const fetchStationPage = async (
   query: StationListQuery,
   page = 1,
@@ -245,6 +268,44 @@ export const getStationModels = async (): Promise<string[]> => {
   return Array.from(new Set(stations.map((station) => station.model))).sort((left, right) =>
     left.localeCompare(right),
   );
+};
+
+export const getStationFilterOptions = async (
+  filters: StationFilterMetadataFilters,
+): Promise<{
+  brands: string[];
+  models: string[];
+}> => {
+  const [brandStations, modelStations] = await Promise.all([
+    listAllStations({
+      ...buildMetadataQuery({
+        searchText: filters.searchText,
+        status: filters.status,
+        currentType: filters.currentType,
+      }),
+      sortBy: 'name',
+      sortOrder: 'asc',
+    }),
+    listAllStations({
+      ...buildMetadataQuery({
+        searchText: filters.searchText,
+        status: filters.status,
+        currentType: filters.currentType,
+        brand: filters.brand,
+      }),
+      sortBy: 'name',
+      sortOrder: 'asc',
+    }),
+  ]);
+
+  return {
+    brands: Array.from(new Set(brandStations.map((station) => station.brand))).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+    models: Array.from(new Set(modelStations.map((station) => station.model))).sort((left, right) =>
+      left.localeCompare(right),
+    ),
+  };
 };
 
 export const getStationById = async (stationId: string): Promise<StationDetails | null> => {

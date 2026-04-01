@@ -4,8 +4,12 @@ import {
   Text,
   TextInput,
   View,
+  type NativeSyntheticEvent,
   type KeyboardTypeOptions,
+  type StyleProp,
+  type TextInputSubmitEditingEventData,
   type TextInputProps,
+  type ViewStyle,
 } from 'react-native';
 
 import { colors, radius } from '@/components/theme';
@@ -23,6 +27,13 @@ type AppTextInputProps = {
   secureTextEntry?: boolean;
   autoCorrect?: boolean;
   editable?: boolean;
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
+  returnKeyType?: TextInputProps['returnKeyType'];
+  onSubmitEditing?: (event: NativeSyntheticEvent<TextInputSubmitEditingEventData>) => void;
+  rightAccessory?: React.ReactNode;
+  wrapperStyle?: StyleProp<ViewStyle>;
+  inputContainerStyle?: StyleProp<ViewStyle>;
 };
 
 export const AppTextInput = ({
@@ -38,31 +49,52 @@ export const AppTextInput = ({
   secureTextEntry = false,
   autoCorrect = false,
   editable = true,
+  autoComplete,
+  textContentType,
+  returnKeyType,
+  onSubmitEditing,
+  rightAccessory,
+  wrapperStyle,
+  inputContainerStyle,
 }: AppTextInputProps): React.JSX.Element => {
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, wrapperStyle]}>
       <Text style={styles.label}>
         {label}
         {required ? <Text style={styles.required}> *</Text> : null}
       </Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.mutedText}
-        multiline={multiline}
-        keyboardType={keyboardType}
-        autoCapitalize={autoCapitalize}
-        secureTextEntry={secureTextEntry}
-        autoCorrect={autoCorrect}
-        editable={editable}
+      <View
         style={[
-          styles.input,
-          multiline && styles.multiline,
+          styles.inputContainer,
+          multiline && styles.multilineContainer,
           !editable && styles.disabledInput,
           error ? styles.errorBorder : null,
+          inputContainerStyle,
         ]}
-      />
+      >
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={colors.mutedText}
+          multiline={multiline}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          secureTextEntry={secureTextEntry}
+          autoCorrect={autoCorrect}
+          editable={editable}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          style={[
+            styles.input,
+            multiline && styles.multiline,
+            rightAccessory ? styles.inputWithAccessory : null,
+          ]}
+        />
+        {rightAccessory ? <View style={styles.accessory}>{rightAccessory}</View> : null}
+      </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
@@ -80,15 +112,32 @@ const styles = StyleSheet.create({
   required: {
     color: colors.danger,
   },
-  input: {
+  inputContainer: {
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
+  },
+  multilineContainer: {
+    alignItems: 'flex-start',
+    minHeight: 84,
+  },
+  input: {
+    flex: 1,
     paddingVertical: 10,
     color: colors.text,
     fontSize: 14,
+  },
+  inputWithAccessory: {
+    paddingRight: 8,
+  },
+  accessory: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 8,
   },
   multiline: {
     minHeight: 84,

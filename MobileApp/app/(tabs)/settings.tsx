@@ -34,7 +34,9 @@ export default function SettingsScreen(): React.JSX.Element {
             label="Sign Out"
             variant="secondary"
             onPress={() => {
-              void signOut();
+              void signOut().then(() => {
+                router.replace('/login');
+              });
             }}
           />
         </View>
