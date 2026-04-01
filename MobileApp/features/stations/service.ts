@@ -1,0 +1,359 @@
+import { getCustomFieldDefinitions } from '@/features/custom-fields';
+import { isApiError } from '@/lib/api/errors';
+import { apiFetch } from '@/lib/api/http';
+import type {
+  CustomFieldDefinition,
+  Station,
+  StationCustomValuesByFieldId,
+  StationDraft,
+  StationListFilters,
+} from '@/types';
+
+import type { StationDetails, StationListItem } from './types';
+
+type SuccessResponse<T> = {
+  data: T;
+};
+
+type PaginatedResponse<T> = {
+  data: T[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
+type ApiStation = {
+  id: string;
+  name: string;
+  code: string;
+  qrCode: string;
+  brand: string;
+  model: string;
+  serialNumber: string;
+  powerKw: number;
+  currentType: Station['currentType'];
+  socketType: string;
+  location: string;
+  status: Extract<Station['status'], 'active' | 'maintenance' | 'inactive' | 'faulty'>;
+  lastTestDate: string | null;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt: string;
+  isArchived: boolean;
+  archivedAt: string | null;
+  summary: NonNullable<Station['summary']>;
+  sync: NonNullable<Station['sync']>;
+  customFields?: Record<string, unknown>;
+};
+
+type StationListQuery = Record<string, string | number | boolean | undefined>;
+
+const DEFAULT_PAGE_SIZE = 100;
+
+const formatCustomFieldValue = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
+};
+
+const mapApiStation = (station: ApiStation): Station => ({
+  id: station.id,
+  name: station.name,
+  code: station.code,
+  qrCode: station.qrCode,
+  brand: station.brand,
+  model: station.model,
+  serialNumber: station.serialNumber,
+  powerKw: station.powerKw,
+  currentType: station.currentType,
+  socketType: station.socketType,
+  location: station.location,
+  status: station.status,
+  lastTestDate: station.lastTestDate,
+  notes: station.notes ?? null,
+  createdAt: station.createdAt ?? station.updatedAt,
+  updatedAt: station.updatedAt,
+  isArchived: station.isArchived,
+  archivedAt: station.archivedAt,
+  summary: station.summary,
+  sync: station.sync,
+  customFields: station.customFields ?? {},
+});
+
+const buildVisibleCustomFields = (
+  station: ApiStation,
+  definitions: CustomFieldDefinition[],
+): Record<string, string> => {
+  if (!station.customFields) {
+    return {};
+  }
+
+  const visibleKeys = new Set(
+    definitions
+      .filter((definition) => definition.isActive && definition.isVisibleInList)
+      .map((definition) => definition.key),
+  );
+
+  const visibleCustomFields: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(station.customFields)) {
+    if (!visibleKeys.has(key)) {
+      continue;
+    }
+
+    visibleCustomFields[key] = formatCustomFieldValue(value);
+  }
+
+  return visibleCustomFields;
+};
+
+const buildCustomValueMap = (
+  station: ApiStation,
+  definitions: CustomFieldDefinition[],
+): StationCustomValuesByFieldId => {
+  const customValueMap: StationCustomValuesByFieldId = {};
+  const fieldIdByKey = new Map(definitions.map((definition) => [definition.key, definition.id]));
+
+  for (const [key, value] of Object.entries(station.customFields ?? {})) {
+    const fieldId = fieldIdByKey.get(key) ?? key;
+    const formatted = formatCustomFieldValue(value);
+
+    if (!formatted) {
+      continue;
+    }
+
+    customValueMap[fieldId] = formatted;
+  }
+
+  return customValueMap;
+};
+
+const getStationSortOrder = (sortBy: StationListFilters['sortBy']): 'asc' | 'desc' => {
+  if (sortBy === 'name') {
+    return 'asc';
+  }
+
+  return 'desc';
+};
+
+const buildStationListQuery = async (
+  filters: StationListFilters,
+): Promise<StationListQuery> => {
+  const definitions = await getCustomFieldDefinitions(true);
+  const fieldKeyById = new Map(definitions.map((definition) => [definition.id, definition.key]));
+  const query: StationListQuery = {
+    search: filters.searchText.trim() || undefined,
+    brand: filters.brand !== 'all' ? filters.brand : undefined,
+    model: filters.model !== 'all' ? filters.model : undefined,
+    currentType: filters.currentType !== 'all' ? filters.currentType : undefined,
+    sortBy: filters.sortBy,
+    sortOrder: getStationSortOrder(filters.sortBy),
+    includeArchived: filters.status === 'archived',
+    isArchived: filters.status === 'archived' ? true : undefined,
+    status:
+      filters.status !== 'all' && filters.status !== 'archived'
+        ? filters.status
+        : undefined,
+  };
+
+  for (const filter of filters.customFieldFilters) {
+    const key = fieldKeyById.get(filter.fieldId);
+    const value = filter.value.trim();
+
+    if (!key || !value) {
+      continue;
+    }
+
+    query[`cf.${key}`] = value;
+  }
+
+  return query;
+};
+
+const fetchStationPage = async (
+  query: StationListQuery,
+  page = 1,
+): Promise<PaginatedResponse<ApiStation>> => {
+  return apiFetch<PaginatedResponse<ApiStation>>('/stations', {
+    query: {
+      ...query,
+      page,
+      limit: DEFAULT_PAGE_SIZE,
+      view: 'full',
+    },
+  });
+};
+
+const listAllStations = async (query: StationListQuery = {}): Promise<ApiStation[]> => {
+  const firstPage = await fetchStationPage(query, 1);
+  const stations = [...firstPage.data];
+
+  for (let page = 2; page <= firstPage.meta.totalPages; page += 1) {
+    const response = await fetchStationPage(query, page);
+    stations.push(...response.data);
+  }
+
+  return stations;
+};
+
+export const getStationList = async (filters: StationListFilters): Promise<StationListItem[]> => {
+  const [definitions, query] = await Promise.all([
+    getCustomFieldDefinitions(true),
+    buildStationListQuery(filters),
+  ]);
+
+  const stations = await listAllStations(query);
+
+  return stations.map((station) => ({
+    ...mapApiStation(station),
+    visibleCustomFields: buildVisibleCustomFields(station, definitions),
+  }));
+};
+
+export const getStationBrands = async (): Promise<string[]> => {
+  const stations = await listAllStations({
+    includeArchived: true,
+    sortBy: 'name',
+    sortOrder: 'asc',
+  });
+
+  return Array.from(new Set(stations.map((station) => station.brand))).sort((left, right) =>
+    left.localeCompare(right),
+  );
+};
+
+export const getStationModels = async (): Promise<string[]> => {
+  const stations = await listAllStations({
+    includeArchived: true,
+    sortBy: 'name',
+    sortOrder: 'asc',
+  });
+
+  return Array.from(new Set(stations.map((station) => station.model))).sort((left, right) =>
+    left.localeCompare(right),
+  );
+};
+
+export const getStationById = async (stationId: string): Promise<StationDetails | null> => {
+  try {
+    const [response, definitions] = await Promise.all([
+      apiFetch<SuccessResponse<ApiStation>>(`/stations/${stationId}`),
+      getCustomFieldDefinitions(true),
+    ]);
+
+    return {
+      ...mapApiStation(response.data),
+      customValuesByFieldId: buildCustomValueMap(response.data, definitions),
+    };
+  } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+export const getStationByQrCode = async (qrCode: string): Promise<Station | null> => {
+  const sanitized = qrCode.trim();
+
+  if (!sanitized) {
+    return null;
+  }
+
+  try {
+    const response = await apiFetch<SuccessResponse<ApiStation>>(
+      `/stations/lookup/qr/${encodeURIComponent(sanitized)}`,
+    );
+
+    return mapApiStation(response.data);
+  } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+export const upsertStation = async (
+  _draft: StationDraft,
+  _customValues: StationCustomValuesByFieldId,
+): Promise<string> => {
+  throw new Error('Station create/update will be connected in a later integration phase.');
+};
+
+export const getDashboardMetrics = async (): Promise<{
+  total: number;
+  active: number;
+  maintenance: number;
+  inactive: number;
+  faulty: number;
+  archived: number;
+}> => {
+  const stations = await listAllStations({
+    includeArchived: true,
+    sortBy: 'updatedAt',
+    sortOrder: 'desc',
+  });
+
+  const counts = {
+    total: stations.length,
+    active: 0,
+    maintenance: 0,
+    inactive: 0,
+    faulty: 0,
+    archived: 0,
+  };
+
+  for (const station of stations) {
+    if (station.isArchived) {
+      counts.archived += 1;
+      continue;
+    }
+
+    counts[station.status] += 1;
+  }
+
+  return counts;
+};
+
+export const getRecentlyUpdatedStations = async (limit = 5): Promise<Station[]> => {
+  const response = await apiFetch<PaginatedResponse<ApiStation>>('/stations', {
+    query: {
+      includeArchived: true,
+      sortBy: 'updatedAt',
+      sortOrder: 'desc',
+      page: 1,
+      limit,
+      view: 'full',
+    },
+  });
+
+  return response.data.map(mapApiStation);
+};
+
+export const archiveStation = async (stationId: string): Promise<void> => {
+  await apiFetch<SuccessResponse<ApiStation>>(`/stations/${stationId}/archive`, {
+    method: 'POST',
+  });
+};
+
+export const deleteStation = async (stationId: string): Promise<void> => {
+  await apiFetch<SuccessResponse<{ success: boolean; id: string }>>(`/stations/${stationId}`, {
+    method: 'DELETE',
+  });
+};
