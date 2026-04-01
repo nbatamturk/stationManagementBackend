@@ -28,12 +28,16 @@ const defaultMetrics: DashboardMetrics = {
 export default function DashboardScreen(): React.JSX.Element {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [metrics, setMetrics] = useState<DashboardMetrics>(defaultMetrics);
   const [recentStations, setRecentStations] = useState<Station[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
+  const loadDashboard = useCallback(async (showLoadingState = true) => {
+    if (showLoadingState) {
+      setLoading(true);
+    }
+
     setErrorMessage('');
 
     try {
@@ -51,9 +55,19 @@ export default function DashboardScreen(): React.JSX.Element {
           : 'Could not refresh dashboard.',
       );
     } finally {
-      setLoading(false);
+      if (showLoadingState) {
+        setLoading(false);
+      }
     }
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+
+    void loadDashboard(false).finally(() => {
+      setRefreshing(false);
+    });
+  }, [loadDashboard]);
 
   useFocusEffect(
     useCallback(() => {
@@ -62,7 +76,7 @@ export default function DashboardScreen(): React.JSX.Element {
   );
 
   return (
-    <AppScreen>
+    <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
       <AppCard style={styles.metricsCard}>

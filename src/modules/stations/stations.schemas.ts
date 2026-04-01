@@ -148,17 +148,35 @@ export const stationCreateBodySchema = Type.Object(
     socketType: socketTypeSchema,
     location: Type.String({ minLength: 2, maxLength: 500 }),
     status: Type.Optional(stationStatusSchema),
-    lastTestDate: Type.Optional(isoDateTimeSchema),
-    notes: Type.Optional(Type.String({ maxLength: 2000 })),
+    lastTestDate: Type.Optional(Type.Union([isoDateTimeSchema, Type.Null()])),
+    notes: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
     customFields: Type.Optional(Type.Record(Type.String(), Type.Any())),
   },
   { additionalProperties: false },
 );
 
-export const stationUpdateBodySchema = Type.Partial(stationCreateBodySchema, {
-  additionalProperties: false,
-  minProperties: 1,
-});
+export const stationUpdateBodySchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ minLength: 2, maxLength: 160 })),
+    code: Type.Optional(Type.String({ minLength: 2, maxLength: 80 })),
+    qrCode: Type.Optional(Type.String({ minLength: 2, maxLength: 150 })),
+    brand: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    model: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    serialNumber: Type.Optional(Type.String({ minLength: 2, maxLength: 150 })),
+    powerKw: Type.Optional(Type.Number({ minimum: 0, maximum: 1000 })),
+    currentType: Type.Optional(currentTypeSchema),
+    socketType: Type.Optional(socketTypeSchema),
+    location: Type.Optional(Type.String({ minLength: 2, maxLength: 500 })),
+    status: Type.Optional(stationStatusSchema),
+    lastTestDate: Type.Optional(Type.Union([isoDateTimeSchema, Type.Null()])),
+    notes: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+    customFields: Type.Optional(Type.Record(Type.String(), Type.Any())),
+  },
+  {
+    additionalProperties: false,
+    minProperties: 1,
+  },
+);
 
 const stationSummaryProperties = {
   ...stationBaseListProperties,

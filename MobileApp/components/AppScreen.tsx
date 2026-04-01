@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  RefreshControl,
   ScrollView,
   StyleSheet,
   View,
@@ -14,12 +15,16 @@ type AppScreenProps = {
   children: React.ReactNode;
   scroll?: boolean;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 };
 
 export const AppScreen = ({
   children,
   scroll = true,
   contentContainerStyle,
+  refreshing = false,
+  onRefresh,
 }: AppScreenProps): React.JSX.Element => {
   const insets = useSafeAreaInsets();
   const bottomPadding = 24 + Math.max(insets.bottom, spacing.lg);
@@ -28,9 +33,18 @@ export const AppScreen = ({
     return (
       <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }, contentContainerStyle]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: bottomPadding },
+            contentContainerStyle,
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+            ) : undefined
+          }
         >
           {children}
         </ScrollView>

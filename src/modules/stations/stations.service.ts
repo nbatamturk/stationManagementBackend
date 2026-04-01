@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { db } from '../../db/client';
 import { stations, type CurrentType, type SocketType, type StationStatus } from '../../db/schema';
@@ -92,8 +92,8 @@ type StationCreatePayload = {
   socketType: SocketType;
   location: string;
   status?: StationStatus;
-  lastTestDate?: string;
-  notes?: string;
+  lastTestDate?: string | null;
+  notes?: string | null;
   customFields?: Record<string, unknown>;
 };
 
@@ -390,7 +390,12 @@ export class StationsService {
             socketType: normalizedPayload.socketType,
             location: normalizedPayload.location,
             status: normalizedPayload.status ?? 'active',
-            lastTestDate: normalizedPayload.lastTestDate ? new Date(normalizedPayload.lastTestDate) : undefined,
+            lastTestDate:
+              normalizedPayload.lastTestDate === undefined
+                ? undefined
+                : normalizedPayload.lastTestDate === null
+                  ? null
+                  : new Date(normalizedPayload.lastTestDate),
             notes: normalizedPayload.notes,
             isArchived: false,
             archivedAt: undefined,
@@ -480,8 +485,13 @@ export class StationsService {
             socketType: normalizedPayload.socketType,
             location: normalizedPayload.location,
             status: normalizedPayload.status,
-            lastTestDate: normalizedPayload.lastTestDate ? new Date(normalizedPayload.lastTestDate) : undefined,
-            notes: normalizedPayload.notes,
+            lastTestDate:
+              normalizedPayload.lastTestDate === undefined
+                ? undefined
+                : normalizedPayload.lastTestDate === null
+                  ? sql`null`
+                  : new Date(normalizedPayload.lastTestDate),
+            notes: normalizedPayload.notes === null ? sql`null` : normalizedPayload.notes,
             isArchived: station.isArchived,
             archivedAt: station.archivedAt,
             updatedBy: userId,
@@ -740,11 +750,16 @@ export class StationsService {
         maxLength: 500,
         minLength: 2,
       }),
-      lastTestDate: lastTestDate?.toISOString(),
-      notes:
-        normalizeOptionalMultilineText(payload.notes, 'Notes', {
-          maxLength: 2000,
-        }) ?? undefined,
+      lastTestDate:
+        lastTestDate === undefined
+          ? undefined
+          : lastTestDate === null
+            ? null
+            : lastTestDate.toISOString(),
+      notes: normalizeOptionalMultilineText(payload.notes, 'Notes', {
+        emptyAs: 'null',
+        maxLength: 2000,
+      }),
       customFields: customFields ?? undefined,
     };
   }
@@ -811,11 +826,16 @@ export class StationsService {
               maxLength: 500,
               minLength: 2,
             }),
-      lastTestDate: lastTestDate?.toISOString(),
-      notes:
-        normalizeOptionalMultilineText(payload.notes, 'Notes', {
-          maxLength: 2000,
-        }) ?? undefined,
+      lastTestDate:
+        lastTestDate === undefined
+          ? undefined
+          : lastTestDate === null
+            ? null
+            : lastTestDate.toISOString(),
+      notes: normalizeOptionalMultilineText(payload.notes, 'Notes', {
+        emptyAs: 'null',
+        maxLength: 2000,
+      }),
       customFields: customFields ?? undefined,
     };
   }

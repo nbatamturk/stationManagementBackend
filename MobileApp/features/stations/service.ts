@@ -8,6 +8,8 @@ import type {
   StationDraft,
   StationListFilters,
 } from '@/types';
+import { dateOnlyToIsoDateTime, isValidDateOnly, isoToDateOnly } from '@/utils/date';
+import { parseSelectOptions } from '@/utils/custom-field';
 
 import type { StationDetails, StationListItem } from './types';
 
@@ -50,6 +52,22 @@ type ApiStation = {
 };
 
 type StationListQuery = Record<string, string | number | boolean | undefined>;
+type StationUpsertPayload = {
+  name: string;
+  code: string;
+  qrCode: string;
+  brand: string;
+  model: string;
+  serialNumber: string;
+  powerKw: number;
+  currentType: Station['currentType'];
+  socketType: StationDraft['socketType'];
+  location: string;
+  status: Extract<Station['status'], 'active' | 'maintenance' | 'inactive' | 'faulty'>;
+  lastTestDate?: string | null;
+  notes?: string | null;
+  customFields?: Record<string, unknown>;
+};
 
 const DEFAULT_PAGE_SIZE = 100;
 
@@ -72,6 +90,132 @@ const formatCustomFieldValue = (value: unknown): string => {
   }
 
   return JSON.stringify(value);
+};
+
+const trimToUndefined = (value: string): string | undefined => {
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
+};
+
+const trimToNull = (value: string): string | null => {
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+};
+
+const parsePowerKw = (value: string): number => {
+  const normalized = value.trim();
+  const parsed = Number(normalized);
+
+  if (!normalized || Number.isNaN(parsed) || !Number.isFinite(parsed)) {
+    throw new Error('Power (kW) must be a valid number.');
+  }
+
+  return parsed;
+};
+
+const serializeCustomFieldValue = (
+  definition: CustomFieldDefinition,
+  rawValue: string,
+): unknown => {
+  const normalized = rawValue.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  switch (definition.type) {
+    case 'text':
+      return normalized;
+    case 'number': {
+      const parsed = Number(normalized);
+
+      if (Number.isNaN(parsed) || !Number.isFinite(parsed)) {
+        throw new Error(`${definition.label} must be a valid number.`);
+      }
+
+      return parsed;
+    }
+    case 'boolean':
+      if (normalized === 'true') {
+        return true;
+      }
+
+      if (normalized === 'false') {
+        return false;
+      }
+
+      throw new Error(`${definition.label} must be Yes, No, or unset.`);
+    case 'date':
+      if (!isValidDateOnly(normalized)) {
+        throw new Error(`${definition.label} must use YYYY-MM-DD format.`);
+      }
+
+      return dateOnlyToIsoDateTime(normalized);
+    case 'select': {
+      const options = parseSelectOptions(definition.optionsJson);
+
+      if (options.length > 0 && !options.includes(normalized)) {
+        throw new Error(`${definition.label} must be one of the configured options.`);
+      }
+
+      return normalized;
+    }
+    case 'json':
+      try {
+        return JSON.parse(normalized) as unknown;
+      } catch {
+        throw new Error(`${definition.label} must contain valid JSON.`);
+      }
+    default:
+      throw new Error(`Unsupported custom field type for ${definition.label}.`);
+  }
+};
+
+const buildStationUpsertPayload = async (
+  draft: StationDraft,
+  customValues: StationCustomValuesByFieldId,
+): Promise<StationUpsertPayload> => {
+  const definitions = await getCustomFieldDefinitions(true);
+  const definitionById = new Map(definitions.map((definition) => [definition.id, definition]));
+  const isEditMode = Boolean(draft.id);
+  const customFields: Record<string, unknown> = {};
+
+  for (const [fieldId, rawValue] of Object.entries(customValues)) {
+    const definition = definitionById.get(fieldId);
+
+    if (!definition) {
+      continue;
+    }
+
+    customFields[definition.key] = serializeCustomFieldValue(definition, rawValue);
+  }
+
+  const normalizedLastTestDate = draft.lastTestDate.trim();
+
+  if (normalizedLastTestDate && !isValidDateOnly(normalizedLastTestDate)) {
+    throw new Error('Last test date must use YYYY-MM-DD format.');
+  }
+
+  return {
+    name: draft.name.trim(),
+    code: draft.code.trim(),
+    qrCode: draft.qrCode.trim(),
+    brand: draft.brand.trim(),
+    model: draft.model.trim(),
+    serialNumber: draft.serialNumber.trim(),
+    powerKw: parsePowerKw(draft.powerKw),
+    currentType: draft.currentType,
+    socketType: draft.socketType,
+    location: draft.location.trim(),
+    status: draft.status,
+    lastTestDate: normalizedLastTestDate
+      ? dateOnlyToIsoDateTime(normalizedLastTestDate)
+      : isEditMode
+        ? null
+        : undefined,
+    notes: isEditMode ? trimToNull(draft.notes) : trimToUndefined(draft.notes),
+    customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
+  };
 };
 
 const mapApiStation = (station: ApiStation): Station => ({
@@ -130,11 +274,13 @@ const buildCustomValueMap = (
   definitions: CustomFieldDefinition[],
 ): StationCustomValuesByFieldId => {
   const customValueMap: StationCustomValuesByFieldId = {};
-  const fieldIdByKey = new Map(definitions.map((definition) => [definition.key, definition.id]));
+  const definitionByKey = new Map(definitions.map((definition) => [definition.key, definition]));
 
   for (const [key, value] of Object.entries(station.customFields ?? {})) {
-    const fieldId = fieldIdByKey.get(key) ?? key;
-    const formatted = formatCustomFieldValue(value);
+    const definition = definitionByKey.get(key);
+    const fieldId = definition?.id ?? key;
+    const formatted =
+      definition?.type === 'date' ? isoToDateOnly(formatCustomFieldValue(value)) : formatCustomFieldValue(value);
 
     if (!formatted) {
       continue;
@@ -351,10 +497,21 @@ export const getStationByQrCode = async (qrCode: string): Promise<Station | null
 };
 
 export const upsertStation = async (
-  _draft: StationDraft,
-  _customValues: StationCustomValuesByFieldId,
+  draft: StationDraft,
+  customValues: StationCustomValuesByFieldId,
 ): Promise<string> => {
-  throw new Error('Station create/update will be connected in a later integration phase.');
+  const payload = await buildStationUpsertPayload(draft, customValues);
+  const response = draft.id
+    ? await apiFetch<SuccessResponse<ApiStation>>(`/stations/${draft.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+    : await apiFetch<SuccessResponse<ApiStation>>('/stations', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+  return response.data.id;
 };
 
 export const getDashboardMetrics = async (): Promise<{

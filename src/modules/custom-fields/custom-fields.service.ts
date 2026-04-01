@@ -286,6 +286,12 @@ export class CustomFieldsService {
     for (const definition of definitions) {
       const value = customFields[definition.key];
       const normalizedValue = this.validateAndNormalizeCustomValue(definition, value);
+
+      if (normalizedValue === null) {
+        await this.repository.deleteStationFieldValue(stationId, definition.id, executor);
+        continue;
+      }
+
       await this.repository.upsertStationFieldValue(stationId, definition.id, normalizedValue, executor);
     }
   }
@@ -295,7 +301,7 @@ export class CustomFieldsService {
       throw new AppError(`Custom field ${definition.key} is required`, 400, 'CUSTOM_FIELD_REQUIRED');
     }
 
-    if (value === undefined) {
+    if (value === undefined || value === null || value === '') {
       return null;
     }
 

@@ -82,6 +82,17 @@ export class CustomFieldsRepository {
       });
   }
 
+  async deleteStationFieldValue(stationId: string, fieldDefinitionId: string, executor: any = db) {
+    await executor
+      .delete(stationCustomFieldValues)
+      .where(
+        and(
+          eq(stationCustomFieldValues.stationId, stationId),
+          eq(stationCustomFieldValues.fieldDefinitionId, fieldDefinitionId),
+        ),
+      );
+  }
+
   async getStationCustomFieldRows(stationIds: string[]) {
     if (stationIds.length === 0) {
       return [];

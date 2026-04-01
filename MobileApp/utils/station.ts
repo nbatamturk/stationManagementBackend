@@ -1,4 +1,4 @@
-import type { StationStatus } from '@/types';
+import type { StationEditableStatus, StationSocketType, StationStatus } from '@/types';
 
 export type StationDisplayStatus = StationStatus | 'archived';
 
@@ -27,6 +27,20 @@ export const STATION_STATUS_COLORS: Record<StationDisplayStatus, string> = {
 };
 
 export const currentTypeOptions = ['AC', 'DC'] as const;
+export const stationEditableStatusOptions: StationEditableStatus[] = [
+  'active',
+  'maintenance',
+  'inactive',
+  'faulty',
+];
+export const stationSocketTypeOptions: StationSocketType[] = [
+  'Type2',
+  'CCS2',
+  'CHAdeMO',
+  'GBT',
+  'NACS',
+  'Other',
+];
 
 export const getStationDisplayStatus = (
   status: StationStatus,

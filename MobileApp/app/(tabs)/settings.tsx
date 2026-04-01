@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton, AppCard, AppScreen, colors } from '@/components';
 import { useAuth } from '@/features/auth';
@@ -9,6 +9,7 @@ import { settingsMenuItems } from '@/features/settings/menu';
 export default function SettingsScreen(): React.JSX.Element {
   const router = useRouter();
   const { signOut, user } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
   const isAdmin = user?.role === 'admin';
   const visibleMenuItems = settingsMenuItems.map((item) =>
     item.label === 'Custom Field Management' && !isAdmin
@@ -21,6 +22,41 @@ export default function SettingsScreen(): React.JSX.Element {
       : item,
   );
 
+  const handleConfirmSignOut = async (): Promise<void> => {
+    if (signingOut) {
+      return;
+    }
+
+    setSigningOut(true);
+
+    try {
+      await signOut();
+      router.replace('/login');
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const handleSignOutPress = (): void => {
+    if (signingOut) {
+      return;
+    }
+
+    Alert.alert('Sign Out', 'Are you sure you want to sign out of this device?', [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: () => {
+          void handleConfirmSignOut();
+        },
+      },
+    ]);
+  };
+
   return (
     <AppScreen>
       <AppCard>
@@ -31,13 +67,10 @@ export default function SettingsScreen(): React.JSX.Element {
             <Text style={styles.sessionMeta}>Role: {user?.role ?? '-'}</Text>
           </View>
           <AppButton
-            label="Sign Out"
+            label={signingOut ? 'Signing Out...' : 'Sign Out'}
             variant="secondary"
-            onPress={() => {
-              void signOut().then(() => {
-                router.replace('/login');
-              });
-            }}
+            onPress={handleSignOutPress}
+            disabled={signingOut}
           />
         </View>
       </AppCard>

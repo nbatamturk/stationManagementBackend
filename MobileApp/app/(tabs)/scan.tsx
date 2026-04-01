@@ -46,9 +46,7 @@ export default function QrScanScreen(): React.JSX.Element {
         return;
       }
 
-      setNotFoundMessage(
-        'No station matched this QR in backend records. Station create/update is intentionally deferred from Phase 1.',
-      );
+      router.push({ pathname: '/stations/edit', params: { qrCode: sanitized } });
     } catch (error) {
       setErrorMessage(
         error instanceof Error

@@ -438,6 +438,25 @@ export default function StationDetailScreen(): React.JSX.Element {
             <FieldRow label="Notes" value={station.notes} />
             <FieldRow label="Created At" value={formatDateTime(station.createdAt)} />
             <FieldRow label="Updated At" value={formatDateTime(station.updatedAt)} />
+
+            {canWriteRecords ? (
+              <>
+                <View style={styles.sectionDivider} />
+                <AppButton
+                  label={station.isArchived ? 'Archived Station' : 'Edit Station'}
+                  onPress={() =>
+                    router.push({ pathname: '/stations/edit', params: { stationId: station.id } })
+                  }
+                  variant="secondary"
+                  disabled={station.isArchived}
+                />
+                {station.isArchived ? (
+                  <Text style={styles.helperText}>
+                    Archived stations are read-only and cannot be edited from mobile.
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
           </AppCard>
 
           <AppCard>
@@ -615,7 +634,7 @@ export default function StationDetailScreen(): React.JSX.Element {
             </View>
           ) : (
             <Text style={styles.helperText}>
-              Archive and delete actions are restricted to admin users in backend phase 1.
+              Archive and delete actions are restricted to admin users.
             </Text>
           )}
         </>

@@ -349,6 +349,65 @@ test('backend integration contract baseline', async (t) => {
     assertStationSync(data.sync);
   });
 
+  await t.test('clear nullable station fields with null', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'operator');
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/stations/${fixtureIds.stations.existing}`,
+      headers: bearerHeaders(token),
+      payload: {
+        notes: null,
+        lastTestDate: null,
+      },
+    });
+    const data = expectSuccess<StationResponseData>(response, 200);
+
+    assert.equal(data.notes, null);
+    assert.equal(data.lastTestDate, null);
+    assert.equal(data.customFields?.commissioning_date, '2026-01-15T00:00:00.000Z');
+  });
+
+  await t.test('clear non-required custom field with null', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'operator');
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/stations/${fixtureIds.stations.existing}`,
+      headers: bearerHeaders(token),
+      payload: {
+        customFields: {
+          commissioning_date: null,
+        },
+      },
+    });
+    const data = expectSuccess<StationResponseData>(response, 200);
+
+    assert.equal(data.customFields?.commissioning_date, undefined);
+    assert.equal(data.customFields?.firmware_version, 'v1.0.0');
+  });
+
+  await t.test('reject clearing required custom field with null', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'operator');
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/stations/${fixtureIds.stations.existing}`,
+      headers: bearerHeaders(token),
+      payload: {
+        customFields: {
+          firmware_version: null,
+        },
+      },
+    });
+
+    const error = expectError(response, 400, 'CUSTOM_FIELD_REQUIRED');
+    assert.equal(error.message, 'Custom field firmware_version is required');
+  });
+
   await t.test('QR lookup', async () => {
     await resetIntegrationDb();
 

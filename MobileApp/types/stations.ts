@@ -1,6 +1,8 @@
 import type { CustomFieldType } from './custom-fields';
 
 export type StationCurrentType = 'AC' | 'DC';
+export type StationSocketType = 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+export type StationEditableStatus = 'active' | 'maintenance' | 'inactive' | 'faulty';
 
 export type StationStatus =
   | 'active'
@@ -82,9 +84,9 @@ export interface StationFormValues {
   serialNumber: string;
   powerKw: string;
   currentType: StationCurrentType;
-  socketType: string;
+  socketType: StationSocketType;
   location: string;
-  status: StationStatus;
+  status: StationEditableStatus;
   lastTestDate: string;
   notes: string;
 }
@@ -99,6 +101,6 @@ export interface StationListFilters {
   customFieldFilters: StationListCustomFieldFilter[];
 }
 
-export interface StationDraft extends Omit<Station, 'id' | 'createdAt' | 'updatedAt'> {
+export interface StationDraft extends StationFormValues {
   id?: string;
 }

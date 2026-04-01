@@ -14,6 +14,7 @@ import {
   StatusBadge,
   colors,
 } from '@/components';
+import { useAuth } from '@/features/auth';
 import { getCustomFieldDefinitions } from '@/features/custom-fields';
 import { getStationFilterOptions, getStationList } from '@/features/stations';
 import type { StationListItem } from '@/features/stations';
@@ -100,6 +101,7 @@ const statusLabels: Record<Exclude<StationListStatusFilter, 'all'>, string> = {
 
 export default function StationListScreen(): React.JSX.Element {
   const router = useRouter();
+  const { user } = useAuth();
   const [filters, setFilters] = useState<StationListFilters>(createDefaultFilters());
   const [brands, setBrands] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
@@ -107,11 +109,16 @@ export default function StationListScreen(): React.JSX.Element {
   const [stations, setStations] = useState<StationListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [metadataLoading, setMetadataLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const canWriteStations = user?.role === 'admin' || user?.role === 'operator';
 
-  const loadFilterMetadata = useCallback(async () => {
-    setMetadataLoading(true);
+  const loadFilterMetadata = useCallback(async (showLoadingState = true) => {
+    if (showLoadingState) {
+      setMetadataLoading(true);
+    }
+
     setErrorMessage('');
 
     try {
@@ -180,12 +187,17 @@ export default function StationListScreen(): React.JSX.Element {
           : 'Could not load station filters.',
       );
     } finally {
-      setMetadataLoading(false);
+      if (showLoadingState) {
+        setMetadataLoading(false);
+      }
     }
   }, [filters.brand, filters.currentType, filters.searchText, filters.status]);
 
-  const loadStations = useCallback(async () => {
-    setLoading(true);
+  const loadStations = useCallback(async (showLoadingState = true) => {
+    if (showLoadingState) {
+      setLoading(true);
+    }
+
     setErrorMessage('');
 
     try {
@@ -198,9 +210,20 @@ export default function StationListScreen(): React.JSX.Element {
           : 'Could not load stations.',
       );
     } finally {
-      setLoading(false);
+      if (showLoadingState) {
+        setLoading(false);
+      }
     }
   }, [filters]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    setErrorMessage('');
+
+    void Promise.all([loadFilterMetadata(false), loadStations(false)]).finally(() => {
+      setRefreshing(false);
+    });
+  }, [loadFilterMetadata, loadStations]);
 
   useFocusEffect(
     useCallback(() => {
@@ -410,11 +433,21 @@ export default function StationListScreen(): React.JSX.Element {
   }, []);
 
   return (
-    <AppScreen>
+    <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
       <SectionHeader
         title="Stations"
         subtitle="Search backend records quickly, then open advanced filters only when needed."
       />
+
+      {canWriteStations ? (
+        <View style={styles.createRow}>
+          <AppButton
+            label="New Station"
+            onPress={() => router.push('/stations/edit')}
+            style={styles.createButton}
+          />
+        </View>
+      ) : null}
 
       {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
@@ -737,6 +770,12 @@ export default function StationListScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
+  createRow: {
+    alignItems: 'flex-start',
+  },
+  createButton: {
+    minWidth: 132,
+  },
   filterCard: {
     gap: 14,
   },

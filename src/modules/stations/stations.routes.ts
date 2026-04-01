@@ -143,8 +143,8 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         socketType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
         location: string;
         status?: 'active' | 'maintenance' | 'inactive' | 'faulty';
-        lastTestDate?: string;
-        notes?: string;
+        lastTestDate?: string | null;
+        notes?: string | null;
         customFields?: Record<string, unknown>;
       };
 
@@ -183,8 +183,8 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         socketType?: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
         location?: string;
         status?: 'active' | 'maintenance' | 'inactive' | 'faulty';
-        lastTestDate?: string;
-        notes?: string;
+        lastTestDate?: string | null;
+        notes?: string | null;
         customFields?: Record<string, unknown>;
       };
 

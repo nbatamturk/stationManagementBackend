@@ -38,7 +38,7 @@ This project manages EV charging/test stations with:
 - station issue/fault tracking
 - CSV station import/export
 - admin web panel
-- mobile app with Phase 1 backend integration
+- mobile app with Phase 2 backend integration
 - standard station filters including `brand`, `model`, `status`, and `currentType`
 
 ## Current Status
@@ -53,21 +53,21 @@ Admin web is available for authenticated management workflows.
 
 ### Mobile App
 
-Mobile Phase 1 integration is in place. These flows use backend:
+Mobile Phase 2 integration is in place. These flows use backend:
 
 - login
 - token storage
+- station create/edit
 - station list
 - station detail
 - QR lookup
 - create test history
 - create issue record
 
-These are intentionally **not** implemented yet in mobile Phase 1:
+These are intentionally **not** implemented yet in mobile Phase 2:
 
 - offline sync
 - background sync
-- mobile station create/update against backend
 - attachment upload flows
 
 The old local SQLite prototype still exists in the repo but is no longer the source of truth for integrated mobile flows.
@@ -356,13 +356,14 @@ npm run web
 
 The mobile app uses camera permission for QR scanning.
 
-### Mobile Phase 1 Behavior
+### Mobile Phase 2 Behavior
 
 Backend-connected mobile flows:
 
 - sign in
 - restore saved session
 - sign out
+- station create/edit
 - station list and filters
 - station detail
 - QR station lookup
@@ -371,7 +372,6 @@ Backend-connected mobile flows:
 
 Deferred mobile flows:
 
-- station create/edit against backend
 - offline sync
 - attachment upload
 
@@ -561,7 +561,6 @@ Set `TEST_DATABASE_URL` in root `.env` so test runs do not reuse your developmen
 
 ## Known Limitations
 
-- Mobile station create/edit is not connected to backend yet.
 - Offline sync is not implemented.
 - Mobile attachments flow is not implemented.
 - Some prototype/local SQLite infrastructure remains in the mobile codebase for non-integrated areas.
