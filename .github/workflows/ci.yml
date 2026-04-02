@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: station_mgmt
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d station_mgmt"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/station_mgmt
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/station_mgmt_test
+      JWT_SECRET: ci-secret-key-for-station-management
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Create test database
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE station_mgmt_test;'
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Run backend integration tests
+        run: npm test
+
+  admin-web:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: admin-web/package-lock.json
+
+      - name: Install admin-web dependencies
+        working-directory: admin-web
+        run: npm ci
+
+      - name: Lint admin-web
+        working-directory: admin-web
+        run: npm run lint
+
+      - name: Typecheck admin-web
+        working-directory: admin-web
+        run: npm run typecheck
+
+      - name: Build admin-web
+        working-directory: admin-web
+        run: npm run build
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: MobileApp/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: MobileApp
+        run: npm ci
+
+      - name: Typecheck mobile
+        working-directory: MobileApp
+        run: npm run typecheck
