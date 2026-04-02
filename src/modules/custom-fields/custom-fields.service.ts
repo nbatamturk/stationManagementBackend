@@ -136,6 +136,8 @@ export class CustomFieldsService {
       minimum: 0,
     });
 
+    await this.assertDefinitionUpdateIsSafe(existing, payload.type, normalizedOptions);
+
     const updated = await this.repository.updateById(id, {
       label: normalizedLabel,
       type: payload.type,
@@ -297,11 +299,11 @@ export class CustomFieldsService {
   }
 
   private validateAndNormalizeCustomValue(definition: NonNullable<Definition>, value: unknown) {
-    if ((value === undefined || value === null || value === '') && definition.isRequired) {
+    if (this.isEmptyCustomValue(value) && definition.isRequired) {
       throw new AppError(`Custom field ${definition.key} is required`, 400, 'CUSTOM_FIELD_REQUIRED');
     }
 
-    if (value === undefined || value === null || value === '') {
+    if (this.isEmptyCustomValue(value)) {
       return null;
     }
 
@@ -353,7 +355,7 @@ export class CustomFieldsService {
           throw new AppError(
             `Custom field ${definition.key} must be one of: ${options.join(', ')}`,
             400,
-            'CUSTOM_FIELD_INVALID_OPTION',
+            'CUSTOM_FIELD_INVALID_OPTIONS',
           );
         }
 
@@ -373,6 +375,64 @@ export class CustomFieldsService {
         throw new AppError('Unsupported custom field type', 400, 'CUSTOM_FIELD_UNSUPPORTED_TYPE');
       }
     }
+  }
+
+  private async assertDefinitionUpdateIsSafe(
+    existing: DefinitionRecord,
+    nextType: DefinitionRecord['type'],
+    nextOptions: Record<string, unknown>,
+  ) {
+    if (existing.type !== nextType) {
+      const existingValueCount = await this.repository.countStationValuesByDefinitionId(existing.id);
+
+      if (existingValueCount > 0) {
+        throw new AppError(
+          'Custom field type cannot be changed while station values exist',
+          400,
+          'CUSTOM_FIELD_TYPE_CHANGE_FORBIDDEN',
+        );
+      }
+
+      return;
+    }
+
+    if (nextType !== 'select') {
+      return;
+    }
+
+    const currentOptions = this.extractSelectOptions(existing.optionsJson);
+    const nextSelectOptions = this.extractSelectOptions(nextOptions);
+
+    if (
+      currentOptions.length === nextSelectOptions.length &&
+      currentOptions.every((option, index) => option === nextSelectOptions[index])
+    ) {
+      return;
+    }
+
+    const storedValues = await this.repository.listStationValuesByDefinitionId(existing.id);
+    const invalidInUseValues = Array.from(
+      new Set(
+        storedValues
+          .map((row: { valueJson: unknown }) => row.valueJson)
+          .filter((value: unknown): value is string => typeof value === 'string' && !nextSelectOptions.includes(value)),
+      ),
+    );
+
+    if (invalidInUseValues.length > 0) {
+      throw new AppError(
+        'Select custom field options cannot remove values used by stations',
+        400,
+        'CUSTOM_FIELD_INVALID_OPTIONS',
+        {
+          inUseValues: invalidInUseValues,
+        },
+      );
+    }
+  }
+
+  private isEmptyCustomValue(value: unknown) {
+    return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
   }
 
   private extractSelectOptions(optionsJson: Record<string, unknown>) {

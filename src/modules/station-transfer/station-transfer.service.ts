@@ -95,6 +95,11 @@ type FileHeaderAnalysis = {
 const stationImportRequiredColumnSet = new Set<string>(stationImportRequiredColumns);
 const stationImportOptionalColumnSet = new Set<string>(stationImportOptionalColumns);
 const stationImportReadonlyColumnSet = new Set<string>(stationImportReadonlyColumns);
+const MAX_STATION_POWER_KW = 1000;
+const MAX_STATION_LOCATION_LENGTH = 500;
+const MAX_STATION_NOTES_LENGTH = 2000;
+const MAX_CUSTOM_FIELD_TEXT_LENGTH = 2000;
+const MAX_CUSTOM_FIELD_SELECT_LENGTH = 200;
 
 const hasErrorIssues = (issues: StationImportIssue[]) => issues.some((issue) => issue.severity === 'error');
 
@@ -471,10 +476,15 @@ export class StationTransferService {
     });
     station.location = this.normalizeTextValue(row.values.location ?? '', 'location', issues, {
       minLength: 2,
+      maxLength: MAX_STATION_LOCATION_LENGTH,
       required: true,
     });
 
-    const powerKw = this.normalizeNumberValue(row.values.powerKw ?? '', 'powerKw', issues, { minimum: 0, required: true });
+    const powerKw = this.normalizeNumberValue(row.values.powerKw ?? '', 'powerKw', issues, {
+      maximum: MAX_STATION_POWER_KW,
+      minimum: 0,
+      required: true,
+    });
 
     if (powerKw !== undefined) {
       station.powerKw = powerKw;
@@ -510,7 +520,9 @@ export class StationTransferService {
       station.lastTestDate = lastTestDate;
     }
 
-    const notes = this.normalizeOptionalText(row.values.notes ?? '');
+    const notes = this.normalizeOptionalText(row.values.notes ?? '', 'notes', issues, {
+      maxLength: MAX_STATION_NOTES_LENGTH,
+    });
 
     if (notes) {
       station.notes = notes;
@@ -577,10 +589,14 @@ export class StationTransferService {
     });
     station.location = this.normalizeTextValue(row.station.location, 'location', issues, {
       minLength: 2,
+      maxLength: MAX_STATION_LOCATION_LENGTH,
       required: true,
     });
 
-    const powerKw = this.normalizeNumberLiteral(row.station.powerKw, 'powerKw', issues, { minimum: 0 });
+    const powerKw = this.normalizeNumberLiteral(row.station.powerKw, 'powerKw', issues, {
+      maximum: MAX_STATION_POWER_KW,
+      minimum: 0,
+    });
 
     if (powerKw !== undefined) {
       station.powerKw = powerKw;
@@ -637,7 +653,9 @@ export class StationTransferService {
     }
 
     if (row.station.notes) {
-      const normalizedNotes = this.normalizeOptionalText(row.station.notes);
+      const normalizedNotes = this.normalizeOptionalText(row.station.notes, 'notes', issues, {
+        maxLength: MAX_STATION_NOTES_LENGTH,
+      });
 
       if (normalizedNotes) {
         station.notes = normalizedNotes;
@@ -1089,9 +1107,32 @@ export class StationTransferService {
     return value;
   }
 
-  private normalizeOptionalText(rawValue: string) {
+  private normalizeOptionalText(
+    rawValue: string,
+    field?: string,
+    issues?: StationImportIssue[],
+    options?: {
+      maxLength?: number;
+    },
+  ) {
     const value = rawValue.trim();
-    return value || undefined;
+
+    if (!value) {
+      return undefined;
+    }
+
+    if (options?.maxLength !== undefined && value.length > options.maxLength) {
+      issues?.push({
+        severity: 'error',
+        code: 'VALUE_TOO_LONG',
+        message: `${field ?? 'value'} must be at most ${options.maxLength} characters`,
+        field: field ?? null,
+        value,
+      });
+      return undefined;
+    }
+
+    return value;
   }
 
   private normalizeNumberValue(
@@ -1100,6 +1141,7 @@ export class StationTransferService {
     issues: StationImportIssue[],
     options: {
       required?: boolean;
+      maximum?: number;
       minimum?: number;
     },
   ) {
@@ -1142,6 +1184,17 @@ export class StationTransferService {
       return undefined;
     }
 
+    if (options.maximum !== undefined && parsed > options.maximum) {
+      issues.push({
+        severity: 'error',
+        code: 'INVALID_NUMBER_RANGE',
+        message: `${field} must be less than or equal to ${options.maximum}`,
+        field,
+        value,
+      });
+      return undefined;
+    }
+
     return parsed;
   }
 
@@ -1150,6 +1203,7 @@ export class StationTransferService {
     field: string,
     issues: StationImportIssue[],
     options: {
+      maximum?: number;
       minimum?: number;
     },
   ) {
@@ -1169,6 +1223,17 @@ export class StationTransferService {
         severity: 'error',
         code: 'INVALID_NUMBER_RANGE',
         message: `${field} must be greater than or equal to ${options.minimum}`,
+        field,
+        value: String(value),
+      });
+      return undefined;
+    }
+
+    if (options.maximum !== undefined && value > options.maximum) {
+      issues.push({
+        severity: 'error',
+        code: 'INVALID_NUMBER_RANGE',
+        message: `${field} must be less than or equal to ${options.maximum}`,
         field,
         value: String(value),
       });
@@ -1325,6 +1390,18 @@ export class StationTransferService {
 
     switch (definition.type) {
       case 'text':
+        if (value.length > MAX_CUSTOM_FIELD_TEXT_LENGTH) {
+          issues.push({
+            severity: 'error',
+            code: 'VALUE_TOO_LONG',
+            message: `${definition.key} must be at most ${MAX_CUSTOM_FIELD_TEXT_LENGTH} characters`,
+            field,
+            value,
+          });
+
+          return { hasValue: false };
+        }
+
         return {
           hasValue: true,
           value,
@@ -1362,6 +1439,18 @@ export class StationTransferService {
         };
       }
       case 'select': {
+        if (value.length > MAX_CUSTOM_FIELD_SELECT_LENGTH) {
+          issues.push({
+            severity: 'error',
+            code: 'VALUE_TOO_LONG',
+            message: `${definition.key} must be at most ${MAX_CUSTOM_FIELD_SELECT_LENGTH} characters`,
+            field,
+            value,
+          });
+
+          return { hasValue: false };
+        }
+
         const options = this.extractSelectOptions(definition);
 
         if (options.length > 0 && !options.includes(value)) {
@@ -1450,6 +1539,16 @@ export class StationTransferService {
           return { hasValue: false };
         }
 
+        if (value.trim().length > MAX_CUSTOM_FIELD_TEXT_LENGTH) {
+          issues.push({
+            severity: 'error',
+            code: 'VALUE_TOO_LONG',
+            message: `${definition.key} must be at most ${MAX_CUSTOM_FIELD_TEXT_LENGTH} characters`,
+            field: `${customFieldColumnPrefix}${definition.key}`,
+          });
+          return { hasValue: false };
+        }
+
         return {
           hasValue: true,
           value: value.trim(),
@@ -1498,6 +1597,16 @@ export class StationTransferService {
         const normalizedValue = value.trim();
 
         if (!normalizedValue) {
+          return { hasValue: false };
+        }
+
+        if (normalizedValue.length > MAX_CUSTOM_FIELD_SELECT_LENGTH) {
+          issues.push({
+            severity: 'error',
+            code: 'VALUE_TOO_LONG',
+            message: `${definition.key} must be at most ${MAX_CUSTOM_FIELD_SELECT_LENGTH} characters`,
+            field: `${customFieldColumnPrefix}${definition.key}`,
+          });
           return { hasValue: false };
         }
 

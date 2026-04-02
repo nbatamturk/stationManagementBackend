@@ -82,6 +82,11 @@ const readAttachmentUpload = async (request: FastifyRequest): Promise<Attachment
     throw new AppError('Attachment file is required', 400, 'INVALID_ATTACHMENT_UPLOAD');
   }
 
+  if (part.fieldname !== 'file') {
+    part.file.resume();
+    throw new AppError('Attachment upload must use a file field named "file"', 400, 'INVALID_ATTACHMENT_UPLOAD');
+  }
+
   try {
     const buffer = await part.toBuffer();
 
@@ -133,7 +138,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (fastify) => {
         params: attachmentParentParamsSchema,
         response: {
           201: attachmentResponseSchema,
-          ...pickErrorResponseSchemas(400, 401, 403, 404, 413, 500),
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 413, 415, 500),
         },
       },
     },
@@ -180,7 +185,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (fastify) => {
         params: attachmentParentParamsSchema,
         response: {
           201: attachmentResponseSchema,
-          ...pickErrorResponseSchemas(400, 401, 403, 404, 413, 500),
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 413, 415, 500),
         },
       },
     },
@@ -227,7 +232,7 @@ export const attachmentsRoutes: FastifyPluginAsync = async (fastify) => {
         params: attachmentParentParamsSchema,
         response: {
           201: attachmentResponseSchema,
-          ...pickErrorResponseSchemas(400, 401, 403, 404, 413, 500),
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 413, 415, 500),
         },
       },
     },

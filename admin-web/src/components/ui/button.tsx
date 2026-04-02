@@ -1,6 +1,12 @@
 import { ButtonHTMLAttributes } from 'react';
 import clsx from 'clsx';
 
-export function Button({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button className={clsx('px-3 py-2 rounded border bg-black text-white disabled:opacity-60', className)} {...props} />;
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+
+export function Button({
+  className,
+  variant = 'primary',
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
+  return <button className={clsx('button', `button-${variant}`, className)} {...props} />;
 }

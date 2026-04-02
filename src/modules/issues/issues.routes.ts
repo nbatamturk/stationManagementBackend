@@ -4,6 +4,7 @@ import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { assertCanWrite } from '../../utils/rbac';
+import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import {
   issueCreateBodySchema,
@@ -43,6 +44,7 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/stations/:id/issues',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         tags: ['Issues'],
@@ -95,6 +97,7 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     '/issues/:id',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         tags: ['Issues'],
@@ -126,6 +129,7 @@ export const issuesRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     '/issues/:id/status',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         tags: ['Issues'],

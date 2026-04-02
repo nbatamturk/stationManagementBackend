@@ -1,5 +1,6 @@
 import fp from 'fastify-plugin';
 
+import { errorResponse } from '../utils/api-response';
 import { AppError, isAppError } from '../utils/errors';
 
 export const errorHandlerPlugin = fp(async (fastify) => {
@@ -24,11 +25,7 @@ export const errorHandlerPlugin = fp(async (fastify) => {
         );
       }
 
-      return reply.status(error.statusCode).send({
-        code: error.code,
-        message: error.message,
-        details: error.details ?? null,
-      });
+      return reply.status(error.statusCode).send(errorResponse(error.code, error.message, error.details ?? null));
     }
 
     if (typeof error === 'object' && error !== null && 'validation' in error) {
@@ -42,10 +39,10 @@ export const errorHandlerPlugin = fp(async (fastify) => {
         'Request validation failed',
       );
 
-      return reply.status(400).send({
-        code: 'VALIDATION_ERROR',
-        message,
-        details:
+      return reply.status(400).send(
+        errorResponse(
+          'VALIDATION_ERROR',
+          message,
           validation.length > 0
             ? validation.map((issue) => ({
                 instancePath: issue.instancePath,
@@ -55,25 +52,20 @@ export const errorHandlerPlugin = fp(async (fastify) => {
                 params: issue.params,
               }))
             : null,
-      });
+        ),
+      );
     }
 
     request.log.error({ err: error }, 'Unhandled request error');
 
     const fallbackError = new AppError('Unexpected internal server error', 500, 'INTERNAL_ERROR');
 
-    return reply.status(fallbackError.statusCode).send({
-      code: fallbackError.code,
-      message: fallbackError.message,
-      details: null,
-    });
+    return reply.status(fallbackError.statusCode).send(
+      errorResponse(fallbackError.code, fallbackError.message, null),
+    );
   });
 
   fastify.setNotFoundHandler((_request, reply) => {
-    return reply.status(404).send({
-      code: 'NOT_FOUND',
-      message: 'Route not found',
-      details: null,
-    });
+    return reply.status(404).send(errorResponse('NOT_FOUND', 'Route not found', null));
   });
 });

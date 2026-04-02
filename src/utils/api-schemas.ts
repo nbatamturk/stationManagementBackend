@@ -1,6 +1,6 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 
-export type CommonErrorStatusCode = 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500;
+export type CommonErrorStatusCode = 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 500;
 
 type SchemaOptions = {
   description?: string;
@@ -98,6 +98,11 @@ export const commonErrorResponseSchemas = {
   413: buildErrorResponseSchema('Uploaded payload exceeds the supported size.', {
     code: 'PAYLOAD_TOO_LARGE',
     message: 'Uploaded payload is too large',
+    details: null,
+  }),
+  415: buildErrorResponseSchema('Uploaded payload uses an unsupported media type or file type.', {
+    code: 'UNSUPPORTED_ATTACHMENT_TYPE',
+    message: 'Unsupported attachment type',
     details: null,
   }),
   429: buildErrorResponseSchema('Too many requests or authentication attempts.', {

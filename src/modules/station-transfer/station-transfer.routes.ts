@@ -1,11 +1,12 @@
 import { Type } from '@sinclair/typebox';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
 import { AppError } from '../../utils/errors';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { requireRoles } from '../../utils/rbac';
+import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import { stationListQuerySchema } from '../stations/stations.schemas';
 import {
@@ -18,6 +19,66 @@ import { stationTransferService } from './station-transfer.service';
 const csvResponseSchema = Type.String({
   description: 'CSV file contents.',
 });
+
+const mapCsvMultipartError = (request: FastifyRequest, error: unknown) => {
+  if (error instanceof request.server.multipartErrors.RequestFileTooLargeError) {
+    throw new AppError('CSV upload file is too large', 400, 'INVALID_CSV_UPLOAD');
+  }
+
+  if (error instanceof request.server.multipartErrors.FilesLimitError) {
+    throw new AppError('Only one CSV file is allowed', 400, 'INVALID_CSV_UPLOAD');
+  }
+
+  if (error instanceof request.server.multipartErrors.FieldsLimitError) {
+    throw new AppError('CSV upload cannot include extra form fields', 400, 'INVALID_CSV_UPLOAD');
+  }
+
+  if (error instanceof request.server.multipartErrors.PartsLimitError) {
+    throw new AppError('CSV upload contains too many form parts', 400, 'INVALID_CSV_UPLOAD');
+  }
+
+  throw error;
+};
+
+const readCsvUpload = async (request: FastifyRequest) => {
+  if (!request.isMultipart()) {
+    throw new AppError('CSV upload must use multipart/form-data with a file field', 400, 'INVALID_CSV_UPLOAD');
+  }
+
+  let part;
+
+  try {
+    part = await request.file({
+      throwFileSizeLimit: true,
+      limits: {
+        fields: 0,
+        files: 1,
+        parts: 1,
+      },
+    });
+  } catch (error) {
+    mapCsvMultipartError(request, error);
+  }
+
+  if (!part) {
+    throw new AppError('CSV file is required', 400, 'INVALID_CSV_UPLOAD');
+  }
+
+  if (part.fieldname !== 'file') {
+    part.file.resume();
+    throw new AppError('CSV upload must use a file field named "file"', 400, 'INVALID_CSV_UPLOAD');
+  }
+
+  try {
+    return {
+      fileName: part.filename || null,
+      csvContent: (await part.toBuffer()).toString('utf-8'),
+    };
+  } catch (error) {
+    mapCsvMultipartError(request, error);
+    throw error;
+  }
+};
 
 export const stationTransferRoutes: FastifyPluginAsync = async (fastify) => {
   const adminOnly = [fastify.authenticate, requireRoles(['admin'])];
@@ -68,21 +129,8 @@ export const stationTransferRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      if (!request.isMultipart()) {
-        throw new AppError('CSV upload must use multipart/form-data with a file field', 400, 'INVALID_CSV_UPLOAD');
-      }
-
-      const part = await request.file();
-
-      if (!part) {
-        throw new AppError('CSV file is required', 400, 'INVALID_CSV_UPLOAD');
-      }
-
-      const csvContent = (await part.toBuffer()).toString('utf-8');
-      const data = await stationTransferService.previewStationsCsvImport(getCurrentUserId(request), {
-        fileName: part.filename || null,
-        csvContent,
-      });
+      const upload = await readCsvUpload(request);
+      const data = await stationTransferService.previewStationsCsvImport(getCurrentUserId(request), upload);
 
       return successResponse(data);
     },
@@ -91,6 +139,7 @@ export const stationTransferRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/imports/stations/apply',
     {
+      ...strictWriteRouteOptions,
       preHandler: adminOnly,
       schema: {
         tags: ['Station Transfer'],

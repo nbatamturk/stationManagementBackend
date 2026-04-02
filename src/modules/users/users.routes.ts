@@ -1,9 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 
-import { successResponse } from '../../utils/api-response';
+import { paginatedResponse, successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { requireRoles } from '../../utils/rbac';
+import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import {
   userActivePatchBodySchema,
@@ -41,13 +42,15 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
         search?: string;
       };
 
-      return usersService.list({
+      const result = await usersService.list({
         page: query.page ?? 1,
         limit: query.limit ?? 20,
         role: query.role,
         isActive: query.isActive,
         search: query.search,
       });
+
+      return paginatedResponse(result.data, result.meta);
     },
   );
 
@@ -76,6 +79,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Users'],
@@ -105,6 +109,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     '/:id',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Users'],
@@ -135,6 +140,7 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     '/:id/active',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Users'],

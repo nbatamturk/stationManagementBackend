@@ -1,7 +1,11 @@
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
+
 import { hash } from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 
 import { buildApp } from '../../src/app';
+import { env } from '../../src/config/env';
 import { db } from '../../src/db/client';
 import {
   attachments,
@@ -68,7 +72,36 @@ export const createTestApp = async () => {
   return app;
 };
 
+const assertSafeIntegrationDb = () => {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('Integration database reset is only allowed when NODE_ENV=test.');
+  }
+
+  const { DATABASE_URL, TEST_DATABASE_URL } = process.env;
+
+  if (!TEST_DATABASE_URL) {
+    throw new Error('TEST_DATABASE_URL is required before running integration database reset.');
+  }
+
+  if (!DATABASE_URL || DATABASE_URL !== TEST_DATABASE_URL) {
+    throw new Error('Integration database reset requires DATABASE_URL to be explicitly set to TEST_DATABASE_URL.');
+  }
+
+  const databaseName = new URL(DATABASE_URL).pathname.replace(/^\/+/, '');
+
+  if (!databaseName || !databaseName.toLowerCase().includes('test')) {
+    throw new Error(`Refusing to reset a database that does not look like a test database: "${databaseName}".`);
+  }
+};
+
 export const resetIntegrationDb = async () => {
+  assertSafeIntegrationDb();
+
+  await rm(path.resolve(process.cwd(), env.UPLOADS_DIR), {
+    force: true,
+    recursive: true,
+  });
+
   const passwordHashes = await passwordHashesPromise;
 
   await db.delete(auditLogs);

@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 
 import { db } from '../../db/client';
 import { customFieldDefinitions, stationCustomFieldValues } from '../../db/schema';
@@ -63,6 +63,24 @@ export class CustomFieldsRepository {
       .select()
       .from(customFieldDefinitions)
       .where(and(eq(customFieldDefinitions.isActive, true), eq(customFieldDefinitions.isRequired, true)));
+  }
+
+  async countStationValuesByDefinitionId(definitionId: string, executor: any = db) {
+    const [row] = await executor
+      .select({ total: count() })
+      .from(stationCustomFieldValues)
+      .where(eq(stationCustomFieldValues.fieldDefinitionId, definitionId));
+
+    return row?.total ?? 0;
+  }
+
+  async listStationValuesByDefinitionId(definitionId: string, executor: any = db) {
+    return executor
+      .select({
+        valueJson: stationCustomFieldValues.valueJson,
+      })
+      .from(stationCustomFieldValues)
+      .where(eq(stationCustomFieldValues.fieldDefinitionId, definitionId));
   }
 
   async upsertStationFieldValue(stationId: string, fieldDefinitionId: string, valueJson: unknown, executor: any = db) {

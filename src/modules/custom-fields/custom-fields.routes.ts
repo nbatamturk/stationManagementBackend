@@ -4,6 +4,7 @@ import { successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { requireRoles } from '../../utils/rbac';
+import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import {
   customFieldCreateBodySchema,
@@ -43,6 +44,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Custom Fields'],
@@ -76,6 +78,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     '/:id',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Custom Fields'],
@@ -109,6 +112,7 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     '/:id/active',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, requireRoles(['admin'])],
       schema: {
         tags: ['Custom Fields'],

@@ -447,7 +447,7 @@ npm run test:integration
 Notes:
 
 - tests expect a reachable PostgreSQL database
-- tests use `TEST_DATABASE_URL` when available
+- `TEST_DATABASE_URL` is required for integration tests and is used as the active `DATABASE_URL`
 - the test command runs migrations before executing tests
 
 ## API Notes
@@ -471,6 +471,14 @@ Errors use:
 ```json
 { "code": "SOME_ERROR", "message": "Readable message", "details": {} }
 ```
+
+Explicit non-wrapper exceptions:
+
+- `GET /health` returns `{ "status": "ok", "timestamp": "..." }`
+- `GET /attachments/:id/download` streams the raw attachment body
+- `GET /exports/stations.csv` streams raw CSV content
+
+Attachment upload endpoints may also return `415 Unsupported Media Type` with the standard error envelope when the uploaded file type is not supported.
 
 ### Auth
 

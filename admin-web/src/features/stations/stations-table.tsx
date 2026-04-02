@@ -1,28 +1,209 @@
 'use client';
+
 import Link from 'next/link';
-import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getCoreRowModel, useReactTable, flexRender, createColumnHelper } from '@tanstack/react-table';
 import { stationsClient } from '@/lib/api/stations-client';
-import { Station } from '@/types/api';
+import { useAuth } from '@/lib/auth/auth-context';
+import { formatCustomValue, formatDateTime, formatEnumLabel, formatRelativeTime } from '@/lib/format';
+import { CustomField, Station } from '@/types/api';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
+import { StateCard } from '@/components/ui/state-card';
 import { TableShell } from '@/components/ui/table-shell';
 
-const col = createColumnHelper<Station>();
+type QueryValue = string | number | boolean | undefined;
 
-export function StationsTable({ page, search }: { page: number; search: string }) {
+function getStatusTone(status: string) {
+  if (status === 'active' || status === 'pass') {
+    return 'success';
+  }
+
+  if (status === 'maintenance' || status === 'warning') {
+    return 'warning';
+  }
+
+  if (status === 'faulty' || status === 'fail') {
+    return 'danger';
+  }
+
+  return 'neutral';
+}
+
+export function StationsTable({
+  query,
+  visibleFields,
+  onPageChange,
+}: {
+  query: Record<string, QueryValue>;
+  visibleFields: CustomField[];
+  onPageChange: (page: number) => void;
+}) {
+  const { canWrite, isAdmin } = useAuth();
   const qc = useQueryClient();
-  const { data, isLoading, error } = useQuery({ queryKey: ['stations', page, search], queryFn: () => stationsClient.list({ page, search, limit: 20 }) });
-  const archive = useMutation({ mutationFn: (id: string) => stationsClient.archive(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['stations'] }) });
-  const remove = useMutation({ mutationFn: (id: string) => stationsClient.remove(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['stations'] }) });
-  const columns = useMemo(() => [
-    col.accessor('name', { header: 'Name' }),
-    col.accessor('status', { header: 'Status' }),
-    col.accessor('location', { header: 'Location' }),
-    col.display({ id: 'actions', header: 'Actions', cell: ({ row }) => <div style={{display:'flex',gap:8}}><Link href={`/stations/${row.original.id}`}>View</Link><Link href={`/stations/${row.original.id}/edit`}>Edit</Link><ConfirmButton label='Archive' confirmText='Archive this station?' onConfirm={() => archive.mutate(row.original.id)} /><ConfirmButton label='Delete' confirmText='Delete this station?' onConfirm={() => remove.mutate(row.original.id)} /></div> }),
-  ], [archive, remove]);
-  const table = useReactTable({ data: data?.data ?? [], columns, getCoreRowModel: getCoreRowModel() });
-  if (isLoading) return <div>Loading stations...</div>;
-  if (error) return <div>Failed to load stations.</div>;
-  return <TableShell title='Stations' actions={<Link href='/stations/new'>Create Station</Link>}><table className='table'><thead>{table.getHeaderGroups().map(hg => <tr key={hg.id}>{hg.headers.map(h => <th key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</th>)}</tr>)}</thead><tbody>{table.getRowModel().rows.map(r => <tr key={r.id}>{r.getVisibleCells().map(c => <td key={c.id}>{flexRender(c.column.columnDef.cell, c.getContext())}</td>)}</tr>)}</tbody></table><p>Page {data?.meta.page} / {data?.meta.totalPages} (Total: {data?.meta.total})</p></TableShell>;
+  const page = Number(query.page ?? 1);
+  const limit = Number(query.limit ?? 20);
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['stations-table', query],
+    queryFn: () => stationsClient.list(query),
+  });
+
+  const archive = useMutation({
+    mutationFn: (id: string) => stationsClient.archive(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['stations-table'] }),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => stationsClient.remove(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['stations-table'] }),
+  });
+
+  if (isLoading) {
+    return <StateCard title='Loading stations' description='Pulling the latest station list and summary counts.' />;
+  }
+
+  if (error) {
+    return (
+      <StateCard
+        title='Stations unavailable'
+        description={(error as Error).message || 'The station list could not be loaded.'}
+        tone='danger'
+      />
+    );
+  }
+
+  const rows = data?.data ?? [];
+  const meta = data?.meta;
+  const start = meta ? (meta.page - 1) * meta.limit + 1 : 0;
+  const end = meta ? Math.min(meta.page * meta.limit, meta.total) : 0;
+
+  return (
+    <TableShell
+      title='Station inventory'
+      description='Search, sort, and act on the current fleet without leaving the table.'
+      actions={
+        canWrite ? (
+          <Link href='/stations/new' className='pill-link'>Create station</Link>
+        ) : undefined
+      }
+    >
+      {rows.length === 0 ? (
+        <p className='table-empty'>No stations match the current filters.</p>
+      ) : (
+        <>
+          <div className='table-wrap'>
+            <table className='table'>
+              <thead>
+                <tr>
+                  <th>Station</th>
+                  <th>Health</th>
+                  <th>Location</th>
+                  {visibleFields.map((field) => <th key={field.id}>{field.label}</th>)}
+                  <th>Latest activity</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((station) => (
+                  <tr key={station.id}>
+                    <td>
+                      <div className='list'>
+                        <div>
+                          <strong>{station.name}</strong>
+                          <div className='inline-cluster'>
+                            <Badge tone='info'>{station.code}</Badge>
+                            <Badge>{station.currentType}</Badge>
+                            <Badge>{station.socketType}</Badge>
+                          </div>
+                        </div>
+                        <div className='muted'>
+                          <div>Brand: {station.brand} · {station.model}</div>
+                          <div>Serial: {station.serialNumber}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className='list'>
+                        <div className='inline-cluster'>
+                          <Badge tone={getStatusTone(station.status)}>{formatEnumLabel(station.status)}</Badge>
+                          {station.isArchived ? <Badge tone='warning'>Archived</Badge> : null}
+                        </div>
+                        <div className='muted'>
+                          <div>Open issues: {station.summary?.openIssueCount ?? 0}</div>
+                          <div>
+                            Latest test:{' '}
+                            {station.summary?.latestTestResult ? (
+                              <Badge tone={getStatusTone(station.summary.latestTestResult)}>
+                                {formatEnumLabel(station.summary.latestTestResult)}
+                              </Badge>
+                            ) : (
+                              'No tests'
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div>{station.location}</div>
+                      <div className='muted'>{station.powerKw} kW</div>
+                    </td>
+                    {visibleFields.map((field) => (
+                      <td key={field.id}>{formatCustomValue((station.customFields ?? {})[field.key])}</td>
+                    ))}
+                    <td>
+                      <div className='list'>
+                        <div>{formatRelativeTime(station.updatedAt)}</div>
+                        <div className='muted'>{formatDateTime(station.updatedAt)}</div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className='table-actions'>
+                        <Link href={`/stations/${station.id}`} className='pill-link'>View</Link>
+                        {canWrite ? <Link href={`/stations/${station.id}/edit`} className='pill-link'>Edit</Link> : null}
+                        {isAdmin ? (
+                          <ConfirmButton
+                            label='Archive'
+                            confirmText='Archive this station?'
+                            onConfirm={() => archive.mutate(station.id)}
+                            variant='secondary'
+                          />
+                        ) : null}
+                        {isAdmin ? (
+                          <ConfirmButton
+                            label='Delete'
+                            confirmText='Delete this station permanently?'
+                            onConfirm={() => remove.mutate(station.id)}
+                            variant='danger'
+                          />
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className='pagination'>
+            <p className='pagination-info'>
+              Showing {rows.length === 0 ? 0 : start}-{end} of {meta?.total ?? 0} stations
+            </p>
+            <div className='inline-cluster'>
+              <Button variant='secondary' onClick={() => onPageChange(page - 1)} disabled={page <= 1}>
+                Previous
+              </Button>
+              <Badge>Page {meta?.page ?? page} of {meta?.totalPages ?? 1}</Badge>
+              <Button
+                variant='secondary'
+                onClick={() => onPageChange(page + 1)}
+                disabled={!meta || page >= meta.totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </TableShell>
+  );
 }

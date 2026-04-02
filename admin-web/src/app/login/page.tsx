@@ -12,13 +12,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  return <div style={{maxWidth:380,margin:'80px auto'}} className='card'>
-    <h2>Admin Login</h2>
-    <form onSubmit={async (e) => { e.preventDefault(); try { await login(email, password); router.push('/dashboard'); } catch (err) { setError((err as Error).message); } }} style={{display:'grid',gap:12}}>
-      <Input placeholder='Email' value={email} onChange={(e) => setEmail(e.target.value)} />
-      <Input placeholder='Password' type='password' value={password} onChange={(e) => setPassword(e.target.value)} />
-      {error ? <p style={{color:'red'}}>{error}</p> : null}
-      <Button type='submit'>Sign in</Button>
-    </form>
+  return <div className='login-shell'>
+    <div className='card login-card'>
+      <div>
+        <p className='eyebrow'>Station Operations</p>
+        <h2>Admin login</h2>
+        <p className='muted'>Sign in to manage stations, issues, tests, and audit activity.</p>
+      </div>
+      <form onSubmit={async (e) => { e.preventDefault(); try { await login(email, password); router.push('/dashboard'); } catch (err) { setError((err as Error).message); } }} className='page-stack'>
+        <Input placeholder='Email' value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Input placeholder='Password' type='password' value={password} onChange={(e) => setPassword(e.target.value)} />
+        {error ? <p className='form-error'>{error}</p> : null}
+        <Button type='submit'>Sign in</Button>
+      </form>
+    </div>
   </div>;
 }

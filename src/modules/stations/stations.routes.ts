@@ -4,6 +4,7 @@ import { paginatedResponse, successResponse } from '../../utils/api-response';
 import { getCurrentUserId } from '../../utils/auth';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { assertCanWrite, requireRoles } from '../../utils/rbac';
+import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import {
   stationCreateBodySchema,
@@ -118,6 +119,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post(
     '/',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         tags: ['Stations'],
@@ -156,6 +158,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.put(
     '/:id',
     {
+      ...strictWriteRouteOptions,
       preHandler: [fastify.authenticate, assertCanWrite],
       schema: {
         tags: ['Stations'],

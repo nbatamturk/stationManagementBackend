@@ -1,6 +1,16 @@
 'use client';
 import { Button } from './button';
 
-export function ConfirmButton({ onConfirm, label, confirmText }: { onConfirm: () => void; label: string; confirmText: string }) {
-  return <Button type='button' onClick={() => { if (window.confirm(confirmText)) onConfirm(); }}>{label}</Button>;
+export function ConfirmButton({
+  onConfirm,
+  label,
+  confirmText,
+  variant = 'secondary',
+}: {
+  onConfirm: () => void;
+  label: string;
+  confirmText: string;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+}) {
+  return <Button type='button' variant={variant} onClick={() => { if (window.confirm(confirmText)) onConfirm(); }}>{label}</Button>;
 }

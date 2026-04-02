@@ -27,6 +27,7 @@ type UpdateUserPayload = {
 };
 
 const PASSWORD_SALT_ROUNDS = 10;
+const INVALID_INPUT_CODE = 'INVALID_INPUT';
 
 export class UsersService {
   constructor(private readonly repository: UsersRepository = usersRepository) {}
@@ -68,13 +69,14 @@ export class UsersService {
       maxLength: 150,
       minLength: 2,
     });
+    const password = this.assertPasswordNotBlank(payload.password);
     const existingUser = await this.repository.findByEmail(normalizedEmail);
 
     if (existingUser) {
       throw new AppError('Email already exists', 409, 'USER_EMAIL_EXISTS');
     }
 
-    const passwordHash = await hash(payload.password, PASSWORD_SALT_ROUNDS);
+    const passwordHash = await hash(password, PASSWORD_SALT_ROUNDS);
 
     const created = await this.repository.create({
       email: normalizedEmail,
@@ -110,11 +112,13 @@ export class UsersService {
     const normalizedPayload = {
       email: payload.email ? normalizeEmail(payload.email) : undefined,
       fullName:
-        normalizeOptionalSingleLineText(payload.fullName, 'Full name', {
-          maxLength: 150,
-          minLength: 2,
-        }) ?? undefined,
-      password: payload.password,
+        payload.fullName === undefined
+          ? undefined
+          : normalizeRequiredSingleLineText(payload.fullName, 'Full name', {
+              maxLength: 150,
+              minLength: 2,
+            }),
+      password: payload.password === undefined ? undefined : this.assertPasswordNotBlank(payload.password),
       role: payload.role,
     };
 
@@ -234,6 +238,14 @@ export class UsersService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  private assertPasswordNotBlank(password: string) {
+    if (password.trim().length === 0) {
+      throw new AppError('Password is required', 400, INVALID_INPUT_CODE);
+    }
+
+    return password;
   }
 }
 
