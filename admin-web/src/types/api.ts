@@ -14,6 +14,15 @@ export interface User {
   id: string; email: string; fullName: string; role: Role; isActive: boolean; createdAt?: string; updatedAt?: string;
 }
 
+export interface ChangePasswordPayload {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface ChangePasswordResponseData {
+  success: true;
+}
+
 export interface StationSummary {
   totalIssueCount: number; openIssueCount: number; hasOpenIssues: boolean; attachmentCount: number; testHistoryCount: number; latestTestResult: TestResult | null;
 }

@@ -8,6 +8,7 @@ import {
   isoDateTimeSchema,
   uuidSchema,
 } from '../../utils/api-schemas';
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from '../../utils/password';
 
 const userRoleSchema = createEnumSchema(userRoleValues);
 
@@ -33,7 +34,7 @@ export const userCreateBodySchema = Type.Object(
   {
     email: Type.String({ format: 'email', maxLength: 255 }),
     fullName: Type.String({ minLength: 2, maxLength: 150 }),
-    password: Type.String({ minLength: 8, maxLength: 128 }),
+    password: Type.String({ minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH }),
     role: Type.Optional(userRoleSchema),
     isActive: Type.Optional(Type.Boolean()),
   },
@@ -44,7 +45,7 @@ export const userUpdateBodySchema = Type.Object(
   {
     email: Type.Optional(Type.String({ format: 'email', maxLength: 255 })),
     fullName: Type.Optional(Type.String({ minLength: 2, maxLength: 150 })),
-    password: Type.Optional(Type.String({ minLength: 8, maxLength: 128 })),
+    password: Type.Optional(Type.String({ minLength: PASSWORD_MIN_LENGTH, maxLength: PASSWORD_MAX_LENGTH })),
     role: Type.Optional(userRoleSchema),
   },
   { additionalProperties: false, minProperties: 1 },

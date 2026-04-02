@@ -78,6 +78,7 @@ const RootNavigator = (): React.JSX.Element => {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="stations/[id]" options={{ title: 'Station Detail' }} />
       <Stack.Screen name="stations/edit" options={{ title: 'Station Create / Edit' }} />
+      <Stack.Screen name="settings/change-password" options={{ title: 'Change Password' }} />
       <Stack.Screen name="settings/custom-fields" options={{ title: 'Custom Fields' }} />
     </Stack>
   );

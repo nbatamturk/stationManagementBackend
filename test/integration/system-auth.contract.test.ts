@@ -13,6 +13,7 @@ import {
 } from '../helpers/api-contract';
 import {
   createTestApp,
+  bearerHeaders,
   loginAs,
   resetIntegrationDb,
   testCredentials,
@@ -110,6 +111,117 @@ test('system and auth contract', async (t) => {
     const response = await app.inject({
       method: 'GET',
       url: '/auth/me',
+    });
+
+    expectError(response, 401, 'UNAUTHORIZED');
+  });
+
+  await t.test('authenticated users can change their own password without losing the current session', async () => {
+    await resetIntegrationDb();
+
+    const { token, user } = await loginAndGetToken(app, 'operator');
+    const newPassword = 'UpdatedOperator123!';
+
+    const changePasswordResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      headers: bearerHeaders(token),
+      payload: {
+        currentPassword: testCredentials.operator.password,
+        newPassword,
+      },
+    });
+
+    expectSuccess<{ success: true }>(changePasswordResponse, 200);
+
+    const meResponse = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: bearerHeaders(token),
+    });
+
+    const meData = expectSuccess<{ user: LoginResponseData['user'] }>(meResponse, 200);
+    assert.deepEqual(meData.user, user);
+
+    const oldLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: {
+        email: testCredentials.operator.email,
+        password: testCredentials.operator.password,
+      },
+    });
+
+    expectError(oldLoginResponse, 401, 'INVALID_CREDENTIALS');
+
+    const newLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: {
+        email: testCredentials.operator.email,
+        password: newPassword,
+      },
+    });
+
+    const newLoginData = expectSuccess<LoginResponseData>(newLoginResponse, 200);
+    assert.equal(newLoginData.user.id, user.id);
+  });
+
+  await t.test('change-password rejects an incorrect current password and keeps the saved password unchanged', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'operator');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      headers: bearerHeaders(token),
+      payload: {
+        currentPassword: 'WrongCurrentPassword123!',
+        newPassword: 'ReplacementOperator123!',
+      },
+    });
+
+    expectError(response, 400, 'INVALID_CURRENT_PASSWORD');
+
+    const loginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: {
+        email: testCredentials.operator.email,
+        password: testCredentials.operator.password,
+      },
+    });
+
+    expectSuccess<LoginResponseData>(loginResponse, 200);
+  });
+
+  await t.test('change-password rejects whitespace-only new passwords with the shared invalid input code', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'operator');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      headers: bearerHeaders(token),
+      payload: {
+        currentPassword: testCredentials.operator.password,
+        newPassword: '        ',
+      },
+    });
+
+    expectError(response, 400, 'INVALID_INPUT');
+  });
+
+  await t.test('change-password stays protected by bearer auth', async () => {
+    await resetIntegrationDb();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      payload: {
+        currentPassword: testCredentials.operator.password,
+        newPassword: 'ReplacementOperator123!',
+      },
     });
 
     expectError(response, 401, 'UNAUTHORIZED');

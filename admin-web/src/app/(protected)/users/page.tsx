@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { RequireRole } from '@/components/auth/require-role';
@@ -16,12 +17,16 @@ import { usersClient } from '@/lib/api/users-client';
 export default function UsersPage() {
   const { isAdmin } = useAuth();
   const qc = useQueryClient();
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState('');
   const { data, isLoading, error } = useQuery({
     queryKey: ['users'],
     queryFn: () => usersClient.list({ page: 1, limit: 50 }),
     enabled: isAdmin,
   });
   const form = useForm({ defaultValues: { email: '', fullName: '', password: '', role: 'viewer', isActive: true } });
+  const passwordResetForm = useForm({
+    defaultValues: { userId: '', password: '', confirmPassword: '' },
+  });
   const create = useMutation({
     mutationFn: usersClient.create,
     onSuccess: async () => {
@@ -32,6 +37,14 @@ export default function UsersPage() {
   const toggle = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => usersClient.setActive(id, isActive),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+  const resetPassword = useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) => usersClient.update(id, { password }),
+    onSuccess: async () => {
+      passwordResetForm.reset({ userId: '', password: '', confirmPassword: '' });
+      setPasswordResetSuccess('User password updated successfully.');
+      await qc.invalidateQueries({ queryKey: ['users'] });
+    },
   });
 
   return (
@@ -78,6 +91,98 @@ export default function UsersPage() {
           <div className='section-actions'>
             <Button disabled={create.isPending} type='submit'>
               {create.isPending ? 'Creating...' : 'Create user'}
+            </Button>
+          </div>
+        </form>
+
+        <form
+          className='card page-stack'
+          onSubmit={passwordResetForm.handleSubmit(async (values) => {
+            setPasswordResetSuccess('');
+
+            if (values.password !== values.confirmPassword) {
+              passwordResetForm.setError('confirmPassword', {
+                type: 'validate',
+                message: 'Password confirmation does not match.',
+              });
+              return;
+            }
+
+            passwordResetForm.clearErrors('confirmPassword');
+            await resetPassword.mutateAsync({ id: values.userId, password: values.password });
+          })}
+        >
+          <div>
+            <h3>Set user password</h3>
+            <p className='muted'>Admins can directly set a new password for any existing user.</p>
+          </div>
+
+          <div className='form-grid'>
+            <div className='field'>
+              <label htmlFor='password-reset-user'>User</label>
+              <Select
+                id='password-reset-user'
+                {...passwordResetForm.register('userId', {
+                  required: 'Select a user.',
+                })}
+              >
+                <option value=''>Select user</option>
+                {(data?.data ?? []).map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.fullName} ({user.email})
+                  </option>
+                ))}
+              </Select>
+              {passwordResetForm.formState.errors.userId ? (
+                <p className='form-error'>{passwordResetForm.formState.errors.userId.message}</p>
+              ) : null}
+            </div>
+
+            <div className='field'>
+              <label htmlFor='password-reset-new'>New password</label>
+              <Input
+                id='password-reset-new'
+                type='password'
+                autoComplete='new-password'
+                minLength={8}
+                maxLength={128}
+                {...passwordResetForm.register('password', {
+                  required: 'New password is required.',
+                  minLength: {
+                    value: 8,
+                    message: 'New password must be at least 8 characters.',
+                  },
+                })}
+              />
+              {passwordResetForm.formState.errors.password ? (
+                <p className='form-error'>{passwordResetForm.formState.errors.password.message}</p>
+              ) : null}
+            </div>
+
+            <div className='field'>
+              <label htmlFor='password-reset-confirm'>Confirm password</label>
+              <Input
+                id='password-reset-confirm'
+                type='password'
+                autoComplete='new-password'
+                minLength={8}
+                maxLength={128}
+                {...passwordResetForm.register('confirmPassword', {
+                  required: 'Password confirmation is required.',
+                })}
+              />
+              {passwordResetForm.formState.errors.confirmPassword ? (
+                <p className='form-error'>{passwordResetForm.formState.errors.confirmPassword.message}</p>
+              ) : null}
+            </div>
+          </div>
+
+          {resetPassword.error ? <p className='form-error'>{(resetPassword.error as Error).message}</p> : null}
+          {passwordResetSuccess ? <p className='muted' role='status'>{passwordResetSuccess}</p> : null}
+
+          <div className='section-actions'>
+            <Button disabled={resetPassword.isPending || isLoading || !data?.data.length} type='submit'>
+              {resetPassword.isPending ? 'Updating...' : 'Set password'}
             </Button>
           </div>
         </form>

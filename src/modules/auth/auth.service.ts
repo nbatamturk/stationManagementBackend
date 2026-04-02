@@ -1,9 +1,11 @@
 import type { FastifyJWT } from '@fastify/jwt';
-import { compare } from 'bcryptjs';
+import { compare, hash } from 'bcryptjs';
 
 import { env } from '../../config/env';
+import { writeAuditLog } from '../../utils/audit-log';
 import { AppError } from '../../utils/errors';
 import { normalizeEmail } from '../../utils/input';
+import { assertPasswordNotBlank, PASSWORD_SALT_ROUNDS } from '../../utils/password';
 
 import { authRepository, type AuthRepository } from './auth.repository';
 import { AuthenticationError } from './auth.errors';
@@ -11,6 +13,11 @@ import { AuthenticationError } from './auth.errors';
 type LoginInput = {
   email: string;
   password: string;
+};
+
+type ChangePasswordInput = {
+  currentPassword: string;
+  newPassword: string;
 };
 
 type SignToken = (payload: Pick<FastifyJWT['payload'], 'email' | 'role' | 'sub'>) => string;
@@ -77,6 +84,42 @@ export class AuthService {
         role: user.role,
         isActive: user.isActive,
       },
+    };
+  }
+
+  async changePassword(userId: string, input: ChangePasswordInput) {
+    const user = await this.repository.findUserById(userId);
+
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    const newPassword = assertPasswordNotBlank(input.newPassword, 'New password');
+    const passwordMatches = await compare(input.currentPassword, user.passwordHash);
+
+    if (!passwordMatches) {
+      throw new AppError('Current password is incorrect', 400, 'INVALID_CURRENT_PASSWORD');
+    }
+
+    const passwordHash = await hash(newPassword, PASSWORD_SALT_ROUNDS);
+    const updated = await this.repository.updatePasswordHash(userId, passwordHash);
+
+    if (!updated) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    await writeAuditLog({
+      actorUserId: userId,
+      entityType: 'user',
+      entityId: userId,
+      action: 'user.password.changed',
+      metadataJson: {
+        changedBySelf: true,
+      },
+    });
+
+    return {
+      success: true as const,
     };
   }
 }

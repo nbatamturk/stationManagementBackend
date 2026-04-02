@@ -22,6 +22,15 @@ export interface LoginResponseData {
   user: AuthUser;
 }
 
+export interface ChangePasswordPayload {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface ChangePasswordResponseData {
+  success: true;
+}
+
 export interface AuthState {
   status: 'loading' | 'authenticated' | 'unauthenticated' | 'retry-required';
   user: AuthUser | null;

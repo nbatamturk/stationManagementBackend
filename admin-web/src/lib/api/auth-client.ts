@@ -1,5 +1,10 @@
 import { apiFetch } from './http';
-import { SuccessResponse, User } from '@/types/api';
+import {
+  ChangePasswordPayload,
+  ChangePasswordResponseData,
+  SuccessResponse,
+  User,
+} from '@/types/api';
 
 export interface LoginResponse {
   accessToken: string;
@@ -18,4 +23,9 @@ export const authClient = {
   login: async (email: string, password: string) =>
     (await apiFetch<SuccessResponse<LoginResponse>>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }, false)).data,
   me: async () => (await apiFetch<SuccessResponse<{ user: User }>>('/auth/me')).data,
+  changePassword: async (payload: ChangePasswordPayload) =>
+    (await apiFetch<SuccessResponse<ChangePasswordResponseData>>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })).data,
 };

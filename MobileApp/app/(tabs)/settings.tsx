@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { type Href, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -10,6 +10,7 @@ export default function SettingsScreen(): React.JSX.Element {
   const { signOut, user } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
   const isAdmin = user?.role === 'admin';
+  const changePasswordRoute = '/settings/change-password' as Href;
 
   const handleConfirmSignOut = async (): Promise<void> => {
     if (signingOut) {
@@ -63,6 +64,18 @@ export default function SettingsScreen(): React.JSX.Element {
           />
         </View>
       </AppCard>
+
+      <Pressable
+        style={({ pressed }) => [styles.item, pressed && styles.pressed]}
+        onPress={() => router.push(changePasswordRoute)}
+      >
+        <AppCard>
+          <Text style={styles.itemTitle}>Change Password</Text>
+          <Text style={styles.itemDescription}>
+            Update your account password while keeping this device signed in.
+          </Text>
+        </AppCard>
+      </Pressable>
 
       {isAdmin ? (
         <Pressable

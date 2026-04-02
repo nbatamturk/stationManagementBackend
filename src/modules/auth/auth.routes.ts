@@ -6,10 +6,17 @@ import { AppError } from '../../utils/errors';
 import { normalizeEmail } from '../../utils/input';
 import { bearerAuthSecurity, pickErrorResponseSchemas } from '../../utils/api-schemas';
 import { fingerprintValue, getRequestSecurityMetadata, maskEmail } from '../../utils/security-events';
+import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import { isAuthenticationError } from './auth.errors';
 import { authService } from './auth.service';
-import { loginBodySchema, loginResponseSchema, meResponseSchema } from './auth.schemas';
+import {
+  changePasswordBodySchema,
+  changePasswordResponseSchema,
+  loginBodySchema,
+  loginResponseSchema,
+  meResponseSchema,
+} from './auth.schemas';
 import { loginAttemptGuard } from './login-attempt-guard';
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
@@ -131,6 +138,35 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request) => {
       const data = await authService.me(getCurrentUserId(request));
+      return successResponse(data);
+    },
+  );
+
+  fastify.post(
+    '/change-password',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['Auth'],
+        summary: 'Change the authenticated user password',
+        description:
+          'Validates the current password for the signed-in user and stores a new password hash without rotating the current access token.',
+        security: bearerAuthSecurity,
+        body: changePasswordBodySchema,
+        response: {
+          200: changePasswordResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 404, 500),
+        },
+      },
+    },
+    async (request) => {
+      const body = request.body as {
+        currentPassword: string;
+        newPassword: string;
+      };
+
+      const data = await authService.changePassword(getCurrentUserId(request), body);
       return successResponse(data);
     },
   );

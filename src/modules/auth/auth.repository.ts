@@ -15,6 +15,19 @@ export class AuthRepository {
       where: eq(users.id, id),
     });
   }
+
+  async updatePasswordHash(userId: string, passwordHash: string) {
+    const [updated] = await db
+      .update(users)
+      .set({
+        passwordHash,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning();
+
+    return updated;
+  }
 }
 
 export const authRepository = new AuthRepository();

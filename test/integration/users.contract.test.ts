@@ -7,6 +7,7 @@ import {
   expectPaginated,
   expectSuccess,
   loginAndGetToken,
+  type LoginResponseData,
   type UserResponseData,
 } from '../helpers/api-contract';
 import {
@@ -223,6 +224,46 @@ test('users contract', async (t) => {
     });
 
     expectError(response, 409, 'USER_EMAIL_EXISTS');
+  });
+
+  await t.test('admin user password resets invalidate the old password and accept the new password', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'admin');
+    const newPassword = 'OperatorReset123!';
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/users/${fixtureIds.users.operator}`,
+      headers: bearerHeaders(token),
+      payload: {
+        password: newPassword,
+      },
+    });
+
+    expectSuccess<UserResponseData>(response, 200);
+
+    const oldLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: {
+        email: testCredentials.operator.email,
+        password: testCredentials.operator.password,
+      },
+    });
+
+    expectError(oldLoginResponse, 401, 'INVALID_CREDENTIALS');
+
+    const newLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: {
+        email: testCredentials.operator.email,
+        password: newPassword,
+      },
+    });
+
+    expectSuccess<LoginResponseData>(newLoginResponse, 200);
   });
 
   await t.test('user management rejects whitespace-only passwords and full-name updates', async () => {

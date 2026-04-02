@@ -8,6 +8,7 @@ import {
   normalizeOptionalSingleLineText,
   normalizeRequiredSingleLineText,
 } from '../../utils/input';
+import { assertPasswordNotBlank, PASSWORD_SALT_ROUNDS } from '../../utils/password';
 
 import { usersRepository, type UsersListFilters, type UsersRepository } from './users.repository';
 
@@ -25,9 +26,6 @@ type UpdateUserPayload = {
   password?: string;
   role?: UserRole;
 };
-
-const PASSWORD_SALT_ROUNDS = 10;
-const INVALID_INPUT_CODE = 'INVALID_INPUT';
 
 export class UsersService {
   constructor(private readonly repository: UsersRepository = usersRepository) {}
@@ -69,7 +67,7 @@ export class UsersService {
       maxLength: 150,
       minLength: 2,
     });
-    const password = this.assertPasswordNotBlank(payload.password);
+    const password = assertPasswordNotBlank(payload.password);
     const existingUser = await this.repository.findByEmail(normalizedEmail);
 
     if (existingUser) {
@@ -118,7 +116,7 @@ export class UsersService {
               maxLength: 150,
               minLength: 2,
             }),
-      password: payload.password === undefined ? undefined : this.assertPasswordNotBlank(payload.password),
+      password: payload.password === undefined ? undefined : assertPasswordNotBlank(payload.password),
       role: payload.role,
     };
 
@@ -238,14 +236,6 @@ export class UsersService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
-  }
-
-  private assertPasswordNotBlank(password: string) {
-    if (password.trim().length === 0) {
-      throw new AppError('Password is required', 400, INVALID_INPUT_CODE);
-    }
-
-    return password;
   }
 }
 
