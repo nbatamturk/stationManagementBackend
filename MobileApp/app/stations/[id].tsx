@@ -8,6 +8,7 @@ import {
   AppScreen,
   AppTextInput,
   EmptyState,
+  ErrorState,
   LoadingState,
   OptionChip,
   StatusBadge,
@@ -16,18 +17,28 @@ import {
 import { useAuth } from '@/features/auth';
 import { getCustomFieldDefinitions } from '@/features/custom-fields';
 import { addStationIssueRecord, getStationIssueRecords } from '@/features/issues';
-import { archiveStation, deleteStation, getStationById } from '@/features/stations';
-import type { StationDetails } from '@/features/stations';
+import {
+  archiveStation,
+  deleteStation,
+  getStationById,
+} from '@/features/stations';
 import { addStationTestHistory, getStationTestHistory } from '@/features/test-history';
 import type {
   CustomFieldDefinition,
   IssueSeverity,
+  Station,
   StationIssueRecord,
   StationTestHistoryRecord,
   TestResult,
 } from '@/types';
 import { formatDateShort, formatDateTime } from '@/utils/date';
 import { STATION_STATUS_LABELS, getStationDisplayStatus } from '@/utils/station';
+
+const sectionOptions = [
+  { label: 'Overview', value: 'overview' },
+  { label: 'Tests', value: 'tests' },
+  { label: 'Issues', value: 'issues' },
+] as const;
 
 const testResultOptions: Array<{ label: string; value: TestResult }> = [
   { label: 'Pass', value: 'pass' },
@@ -68,7 +79,13 @@ const ISSUE_STATUS_LABELS: Record<StationIssueRecord['status'], string> = {
   closed: 'Closed',
 };
 
-const FieldRow = ({ label, value }: { label: string; value?: string | number | null }): React.JSX.Element => {
+const FieldRow = ({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | number | null;
+}): React.JSX.Element => {
   return (
     <View style={styles.fieldRow}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -77,12 +94,41 @@ const FieldRow = ({ label, value }: { label: string; value?: string | number | n
   );
 };
 
-const InfoPill = ({ label, color }: { label: string; color: string }): React.JSX.Element => {
+const InfoPill = ({
+  label,
+  color,
+}: {
+  label: string;
+  color: string;
+}): React.JSX.Element => {
   return (
     <View style={[styles.pill, { backgroundColor: `${color}1A` }]}>
       <Text style={[styles.pillText, { color }]}>{label}</Text>
     </View>
   );
+};
+
+const formatCustomFieldValue = (
+  definition: CustomFieldDefinition | undefined,
+  value: unknown,
+): string => {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+
+  if (definition?.type === 'date' && typeof value === 'string') {
+    return formatDateShort(value);
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+
+  if (typeof value === 'number' || typeof value === 'string') {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
 };
 
 export default function StationDetailScreen(): React.JSX.Element {
@@ -91,91 +137,173 @@ export default function StationDetailScreen(): React.JSX.Element {
   const params = useLocalSearchParams<{ id?: string }>();
 
   const stationId = typeof params.id === 'string' ? params.id : '';
+  const [activeSection, setActiveSection] =
+    useState<(typeof sectionOptions)[number]['value']>('overview');
 
-  const [loading, setLoading] = useState(true);
-  const [savingTest, setSavingTest] = useState(false);
-  const [savingIssue, setSavingIssue] = useState(false);
-  const [processingLifecycleAction, setProcessingLifecycleAction] = useState(false);
+  const [station, setStation] = useState<Station | null>(null);
+  const [stationLoading, setStationLoading] = useState(true);
+  const [stationError, setStationError] = useState('');
 
-  const [station, setStation] = useState<StationDetails | null>(null);
   const [customDefinitions, setCustomDefinitions] = useState<CustomFieldDefinition[]>([]);
-  const [testHistory, setTestHistory] = useState<StationTestHistoryRecord[]>([]);
-  const [issueRecords, setIssueRecords] = useState<StationIssueRecord[]>([]);
+  const [customFieldsLoading, setCustomFieldsLoading] = useState(true);
+  const [customFieldsError, setCustomFieldsError] = useState('');
 
+  const [testHistory, setTestHistory] = useState<StationTestHistoryRecord[]>([]);
+  const [testsLoading, setTestsLoading] = useState(true);
+  const [testsError, setTestsError] = useState('');
+  const [savingTest, setSavingTest] = useState(false);
+  const [showTestComposer, setShowTestComposer] = useState(false);
   const [testForm, setTestForm] = useState({
     testType: '',
     result: 'pass' as TestResult,
     notes: '',
   });
+  const [testFormError, setTestFormError] = useState('');
+
+  const [issueRecords, setIssueRecords] = useState<StationIssueRecord[]>([]);
+  const [issuesLoading, setIssuesLoading] = useState(true);
+  const [issuesError, setIssuesError] = useState('');
+  const [savingIssue, setSavingIssue] = useState(false);
+  const [showIssueComposer, setShowIssueComposer] = useState(false);
   const [issueForm, setIssueForm] = useState({
     title: '',
     severity: 'medium' as IssueSeverity,
     description: '',
   });
-
-  const [testFormError, setTestFormError] = useState('');
   const [issueFormError, setIssueFormError] = useState('');
+
+  const [processingLifecycleAction, setProcessingLifecycleAction] = useState(false);
   const [actionError, setActionError] = useState('');
-  const [loadError, setLoadError] = useState('');
 
   const canWriteRecords = user?.role === 'admin' || user?.role === 'operator';
   const canManageLifecycle = user?.role === 'admin';
 
-  const refreshSecondPhaseSections = useCallback(async () => {
-    if (!stationId) {
-      return;
+  const loadStation = useCallback(
+    async (showLoadingState = true) => {
+      if (!stationId) {
+        setStation(null);
+        setStationLoading(false);
+        return;
+      }
+
+      if (showLoadingState) {
+        setStationLoading(true);
+      }
+
+      setStationError('');
+
+      try {
+        const result = await getStationById(stationId);
+        setStation(result);
+      } catch (error) {
+        setStationError(
+          error instanceof Error
+            ? `Could not load station detail: ${error.message}`
+            : 'Could not load station detail.',
+        );
+
+        if (showLoadingState) {
+          setStation(null);
+        }
+      } finally {
+        if (showLoadingState) {
+          setStationLoading(false);
+        }
+      }
+    },
+    [stationId],
+  );
+
+  const loadCustomFields = useCallback(async (showLoadingState = true) => {
+    if (showLoadingState) {
+      setCustomFieldsLoading(true);
     }
 
-    const [historyResult, issueResult] = await Promise.all([
-      getStationTestHistory(stationId),
-      getStationIssueRecords(stationId),
-    ]);
-
-    setTestHistory(historyResult);
-    setIssueRecords(issueResult);
-  }, [stationId]);
-
-  const loadStation = useCallback(async () => {
-    if (!stationId) {
-      setStation(null);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setLoadError('');
+    setCustomFieldsError('');
 
     try {
-      const [stationResult, definitionResult, historyResult, issueResult] = await Promise.all([
-        getStationById(stationId),
-        getCustomFieldDefinitions(false),
-        getStationTestHistory(stationId),
-        getStationIssueRecords(stationId),
-      ]);
-
-      setStation(stationResult);
-      setCustomDefinitions(definitionResult);
-      setTestHistory(historyResult);
-      setIssueRecords(issueResult);
+      const result = await getCustomFieldDefinitions(false);
+      setCustomDefinitions(result);
     } catch (error) {
-      setStation(null);
       setCustomDefinitions([]);
-      setTestHistory([]);
-      setIssueRecords([]);
-      setLoadError(
+      setCustomFieldsError(
         error instanceof Error
-          ? `Could not load station detail: ${error.message}`
-          : 'Could not load station detail.',
+          ? `Could not load custom fields: ${error.message}`
+          : 'Could not load custom fields.',
       );
     } finally {
-      setLoading(false);
+      if (showLoadingState) {
+        setCustomFieldsLoading(false);
+      }
     }
-  }, [stationId]);
+  }, []);
+
+  const loadTests = useCallback(
+    async (showLoadingState = true) => {
+      if (!stationId) {
+        setTestsLoading(false);
+        return;
+      }
+
+      if (showLoadingState) {
+        setTestsLoading(true);
+      }
+
+      setTestsError('');
+
+      try {
+        const result = await getStationTestHistory(stationId);
+        setTestHistory(result);
+      } catch (error) {
+        setTestsError(
+          error instanceof Error
+            ? `Could not load test history: ${error.message}`
+            : 'Could not load test history.',
+        );
+      } finally {
+        if (showLoadingState) {
+          setTestsLoading(false);
+        }
+      }
+    },
+    [stationId],
+  );
+
+  const loadIssues = useCallback(
+    async (showLoadingState = true) => {
+      if (!stationId) {
+        setIssuesLoading(false);
+        return;
+      }
+
+      if (showLoadingState) {
+        setIssuesLoading(true);
+      }
+
+      setIssuesError('');
+
+      try {
+        const result = await getStationIssueRecords(stationId);
+        setIssueRecords(result);
+      } catch (error) {
+        setIssuesError(
+          error instanceof Error
+            ? `Could not load issue records: ${error.message}`
+            : 'Could not load issue records.',
+        );
+      } finally {
+        if (showLoadingState) {
+          setIssuesLoading(false);
+        }
+      }
+    },
+    [stationId],
+  );
 
   useFocusEffect(
     useCallback(() => {
-      void loadStation();
-    }, [loadStation]),
+      void Promise.all([loadStation(), loadCustomFields(), loadTests(), loadIssues()]);
+    }, [loadCustomFields, loadIssues, loadStation, loadTests]),
   );
 
   const customFieldRows = useMemo(() => {
@@ -183,29 +311,31 @@ export default function StationDetailScreen(): React.JSX.Element {
       return [];
     }
 
-    const knownIds = new Set(customDefinitions.map((definition) => definition.id));
-
     const rows = customDefinitions.map((definition) => ({
       id: definition.id,
       label: definition.label,
-      value: station.customValuesByFieldId[definition.id] ?? '-',
+      value: formatCustomFieldValue(definition, station.customFields?.[definition.key]),
     }));
 
-    for (const [fieldId, value] of Object.entries(station.customValuesByFieldId)) {
-      if (!knownIds.has(fieldId)) {
-        rows.push({
-          id: fieldId,
-          label: `Archived Field (${fieldId})`,
-          value,
-        });
+    const knownKeys = new Set(customDefinitions.map((definition) => definition.key));
+
+    for (const [key, value] of Object.entries(station.customFields ?? {})) {
+      if (knownKeys.has(key)) {
+        continue;
       }
+
+      rows.push({
+        id: key,
+        label: `Archived Field (${key})`,
+        value: formatCustomFieldValue(undefined, value),
+      });
     }
 
-    return rows;
+    return rows.filter((item) => item.value !== '-');
   }, [customDefinitions, station]);
 
   const submitTestRecord = async (): Promise<void> => {
-    if (!station) {
+    if (!station || savingTest) {
       return;
     }
 
@@ -217,6 +347,7 @@ export default function StationDetailScreen(): React.JSX.Element {
     setTestFormError('');
 
     const normalizedType = testForm.testType.trim();
+
     if (!normalizedType) {
       setTestFormError('Test type is required.');
       return;
@@ -237,18 +368,18 @@ export default function StationDetailScreen(): React.JSX.Element {
         notes: testForm.notes.trim() || undefined,
       });
 
-      await refreshSecondPhaseSections();
-
       setTestForm({
         testType: '',
         result: 'pass',
         notes: '',
       });
+      setShowTestComposer(false);
+      await Promise.all([loadTests(false), loadStation(false)]);
     } catch (error) {
       setTestFormError(
         error instanceof Error
           ? `Could not save test record: ${error.message}`
-          : 'Could not save test record. Please try again.',
+          : 'Could not save test record.',
       );
     } finally {
       setSavingTest(false);
@@ -256,7 +387,7 @@ export default function StationDetailScreen(): React.JSX.Element {
   };
 
   const submitIssueRecord = async (): Promise<void> => {
-    if (!station) {
+    if (!station || savingIssue) {
       return;
     }
 
@@ -268,6 +399,7 @@ export default function StationDetailScreen(): React.JSX.Element {
     setIssueFormError('');
 
     const normalizedTitle = issueForm.title.trim();
+
     if (!normalizedTitle) {
       setIssueFormError('Issue title is required.');
       return;
@@ -288,18 +420,18 @@ export default function StationDetailScreen(): React.JSX.Element {
         description: issueForm.description.trim() || undefined,
       });
 
-      await refreshSecondPhaseSections();
-
       setIssueForm({
         title: '',
         severity: 'medium',
         description: '',
       });
+      setShowIssueComposer(false);
+      await Promise.all([loadIssues(false), loadStation(false)]);
     } catch (error) {
       setIssueFormError(
         error instanceof Error
           ? `Could not save issue record: ${error.message}`
-          : 'Could not save issue record. Please try again.',
+          : 'Could not save issue record.',
       );
     } finally {
       setSavingIssue(false);
@@ -321,7 +453,7 @@ export default function StationDetailScreen(): React.JSX.Element {
       setActionError(
         error instanceof Error
           ? `Could not archive station: ${error.message}`
-          : 'Could not archive station. Please try again.',
+          : 'Could not archive station.',
       );
     } finally {
       setProcessingLifecycleAction(false);
@@ -343,7 +475,7 @@ export default function StationDetailScreen(): React.JSX.Element {
       setActionError(
         error instanceof Error
           ? `Could not delete station: ${error.message}`
-          : 'Could not delete station. Please try again.',
+          : 'Could not delete station.',
       );
     } finally {
       setProcessingLifecycleAction(false);
@@ -357,7 +489,7 @@ export default function StationDetailScreen(): React.JSX.Element {
 
     Alert.alert(
       'Archive Station',
-      `Archive "${station.name}"? The station will remain in backend records as archived.`,
+      `Archive "${station.name}"? The record will stay in backend history as archived.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -378,7 +510,7 @@ export default function StationDetailScreen(): React.JSX.Element {
 
     Alert.alert(
       'Delete Station',
-      `Delete "${station.name}" permanently? This will also remove local test history, issues, and custom values linked to this station.`,
+      `Delete "${station.name}" permanently from backend records?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -392,34 +524,95 @@ export default function StationDetailScreen(): React.JSX.Element {
     );
   };
 
+  if (stationLoading) {
+    return (
+      <AppScreen>
+        <LoadingState label="Loading station details..." />
+      </AppScreen>
+    );
+  }
+
+  if (!station) {
+    return (
+      <AppScreen>
+        {stationError ? (
+          <ErrorState
+            title="Station detail unavailable"
+            description={stationError}
+            actionLabel="Retry"
+            onActionPress={() => {
+              void Promise.all([loadStation(), loadCustomFields(), loadTests(), loadIssues()]);
+            }}
+          />
+        ) : (
+          <EmptyState
+            title="Station not found"
+            description="The selected station record could not be loaded."
+            actionLabel="Open Station List"
+            onActionPress={() => router.replace('/stations')}
+          />
+        )}
+      </AppScreen>
+    );
+  }
+
   return (
     <AppScreen>
-      {loadError ? <Text style={styles.errorText}>{loadError}</Text> : null}
+      <AppCard>
+        <View style={styles.headerRow}>
+          <View style={styles.headerMain}>
+            <Text style={styles.stationName}>{station.name}</Text>
+            <Text style={styles.stationMeta}>
+              {station.code} • {station.brand} • {station.model}
+            </Text>
+            <Text style={styles.stationMeta}>{station.location}</Text>
+          </View>
+          <StatusBadge status={station.status} isArchived={station.isArchived} />
+        </View>
 
-      {loading ? (
-        <LoadingState label="Loading station details..." />
-      ) : !station ? (
-        <EmptyState
-          title="Station not found"
-          description={loadError || 'The selected station record could not be loaded.'}
-          actionLabel="Go To Station List"
-          onActionPress={() => router.replace('/stations')}
-        />
-      ) : (
+        <View style={styles.summaryRow}>
+          <InfoPill label={`${station.summary?.openIssueCount ?? 0} Open Issues`} color={colors.primary} />
+          <InfoPill
+            label={`${station.summary?.testHistoryCount ?? 0} Tests`}
+            color="#0F9D58"
+          />
+          {station.summary?.latestTestResult ? (
+            <InfoPill
+              label={`Latest: ${TEST_RESULT_LABELS[station.summary.latestTestResult]}`}
+              color={TEST_RESULT_COLORS[station.summary.latestTestResult]}
+            />
+          ) : null}
+        </View>
+
+        <View style={styles.sectionSelector}>
+          {sectionOptions.map((option) => (
+            <OptionChip
+              key={option.value}
+              label={option.label}
+              selected={activeSection === option.value}
+              onPress={() => setActiveSection(option.value)}
+            />
+          ))}
+        </View>
+      </AppCard>
+
+      {activeSection === 'overview' ? (
         <>
-          <AppCard>
-            <View style={styles.headerRow}>
-              <View style={styles.headerMain}>
-                <Text style={styles.stationName}>{station.name}</Text>
-                <Text style={styles.stationMeta}>
-                  {station.code} • {station.brand} • {station.model}
-                </Text>
-              </View>
-              <StatusBadge status={station.status} isArchived={station.isArchived} />
-            </View>
+          {stationError ? (
+            <ErrorState
+              title="Station overview needs refresh"
+              description={stationError}
+              actionLabel="Retry Overview"
+              onActionPress={() => {
+                void Promise.all([loadStation(), loadCustomFields(false)]);
+              }}
+              compact
+            />
+          ) : null}
 
+          <AppCard>
+            <Text style={styles.cardTitle}>Overview</Text>
             <FieldRow label="Station ID" value={station.id} />
-            <FieldRow label="Name" value={station.name} />
             <FieldRow label="Code" value={station.code} />
             <FieldRow
               label="Status"
@@ -460,161 +653,40 @@ export default function StationDetailScreen(): React.JSX.Element {
           </AppCard>
 
           <AppCard>
-            <Text style={styles.cardTitle}>Custom Properties</Text>
-            {customFieldRows.length === 0 ? (
+            <Text style={styles.cardTitle}>Custom Fields</Text>
+            {customFieldsLoading ? (
+              <LoadingState label="Loading custom fields..." compact />
+            ) : customFieldsError ? (
+              <ErrorState
+                title="Custom fields unavailable"
+                description={customFieldsError}
+                actionLabel="Retry"
+                onActionPress={() => {
+                  void loadCustomFields();
+                }}
+                compact
+              />
+            ) : customFieldRows.length === 0 ? (
               <Text style={styles.emptyText}>No custom field values are available for this station.</Text>
             ) : (
-              customFieldRows.map((item) => <FieldRow key={item.id} label={item.label} value={item.value} />)
-            )}
-          </AppCard>
-
-          <AppCard>
-            <Text style={styles.cardTitle}>Test History</Text>
-
-            {testHistory.length === 0 ? (
-              <Text style={styles.emptyText}>No test records added yet.</Text>
-            ) : (
-              testHistory.map((record) => (
-                <View key={record.id} style={styles.recordItem}>
-                  <View style={styles.recordHeader}>
-                    <Text style={styles.recordTitle}>{record.testType}</Text>
-                    <InfoPill
-                      label={TEST_RESULT_LABELS[record.result]}
-                      color={TEST_RESULT_COLORS[record.result]}
-                    />
-                  </View>
-                  <Text style={styles.recordMeta}>Performed: {formatDateTime(record.performedAt)}</Text>
-                  {record.performedBy ? (
-                    <Text style={styles.recordMeta}>Performed By: {record.performedBy}</Text>
-                  ) : null}
-                  {record.notes ? <Text style={styles.recordBody}>{record.notes}</Text> : null}
-                </View>
+              customFieldRows.map((item) => (
+                <FieldRow key={item.id} label={item.label} value={item.value} />
               ))
             )}
-
-            <View style={styles.sectionDivider} />
-            <Text style={styles.formTitle}>Add Test Record</Text>
-            {!canWriteRecords ? (
-              <Text style={styles.helperText}>
-                Your current role can view test history but cannot create new records.
-              </Text>
-            ) : null}
-
-            <AppTextInput
-              label="Test Type"
-              required
-              value={testForm.testType}
-              onChangeText={(value) => setTestForm((prev) => ({ ...prev, testType: value }))}
-              placeholder="Example: Functional Verification"
-            />
-
-            <View style={styles.formGroup}>
-              <Text style={styles.filterLabel}>Result</Text>
-              <View style={styles.inlineRow}>
-                {testResultOptions.map((option) => (
-                  <OptionChip
-                    key={option.value}
-                    label={option.label}
-                    selected={testForm.result === option.value}
-                    onPress={() => setTestForm((prev) => ({ ...prev, result: option.value }))}
-                  />
-                ))}
-              </View>
-            </View>
-
-            <AppTextInput
-              label="Notes"
-              value={testForm.notes}
-              onChangeText={(value) => setTestForm((prev) => ({ ...prev, notes: value }))}
-              placeholder="Optional details"
-              multiline
-            />
-
-            {testFormError ? <Text style={styles.errorText}>{testFormError}</Text> : null}
-
-            <AppButton
-              label={savingTest ? 'Saving Test Record...' : 'Add Test Record'}
-              onPress={() => {
-                void submitTestRecord();
-              }}
-              disabled={savingTest || !canWriteRecords}
-            />
           </AppCard>
 
-          <AppCard>
-            <Text style={styles.cardTitle}>Issue / Fault Records</Text>
-
-            {issueRecords.length === 0 ? (
-              <Text style={styles.emptyText}>No issue records added yet.</Text>
-            ) : (
-              issueRecords.map((record) => (
-                <View key={record.id} style={styles.recordItem}>
-                  <View style={styles.recordHeader}>
-                    <Text style={styles.recordTitle}>{record.title}</Text>
-                    <View style={styles.badgeRow}>
-                      <InfoPill
-                        label={record.severity.toUpperCase()}
-                        color={ISSUE_SEVERITY_COLORS[record.severity]}
-                      />
-                      <InfoPill label={ISSUE_STATUS_LABELS[record.status]} color={colors.primary} />
-                    </View>
-                  </View>
-                  <Text style={styles.recordMeta}>Reported: {formatDateTime(record.reportedAt)}</Text>
-                  {record.description ? <Text style={styles.recordBody}>{record.description}</Text> : null}
-                </View>
-              ))
-            )}
-
-            <View style={styles.sectionDivider} />
-            <Text style={styles.formTitle}>Add Issue Record</Text>
-            {!canWriteRecords ? (
-              <Text style={styles.helperText}>
-                Your current role can view issues but cannot create new records.
-              </Text>
-            ) : null}
-
-            <AppTextInput
-              label="Issue Title"
-              required
-              value={issueForm.title}
-              onChangeText={(value) => setIssueForm((prev) => ({ ...prev, title: value }))}
-              placeholder="Example: Connector latch fault"
-            />
-
-            <View style={styles.formGroup}>
-              <Text style={styles.filterLabel}>Severity</Text>
-              <View style={styles.inlineRow}>
-                {issueSeverityOptions.map((option) => (
-                  <OptionChip
-                    key={option.value}
-                    label={option.label}
-                    selected={issueForm.severity === option.value}
-                    onPress={() => setIssueForm((prev) => ({ ...prev, severity: option.value }))}
-                  />
-                ))}
-              </View>
-            </View>
-
-            <AppTextInput
-              label="Description"
-              value={issueForm.description}
-              onChangeText={(value) => setIssueForm((prev) => ({ ...prev, description: value }))}
-              placeholder="Optional details"
-              multiline
-            />
-
-            {issueFormError ? <Text style={styles.errorText}>{issueFormError}</Text> : null}
-
-            <AppButton
-              label={savingIssue ? 'Saving Issue Record...' : 'Add Issue Record'}
-              onPress={() => {
-                void submitIssueRecord();
+          {actionError ? (
+            <ErrorState
+              title="Station action failed"
+              description={actionError}
+              actionLabel="Retry Overview"
+              onActionPress={() => {
+                void loadStation(false);
               }}
-              disabled={savingIssue || !canWriteRecords}
+              compact
             />
-          </AppCard>
+          ) : null}
 
-          {actionError ? <Text style={styles.errorText}>{actionError}</Text> : null}
           {canManageLifecycle ? (
             <View style={styles.actionRow}>
               <AppButton
@@ -638,7 +710,223 @@ export default function StationDetailScreen(): React.JSX.Element {
             </Text>
           )}
         </>
-      )}
+      ) : null}
+
+      {activeSection === 'tests' ? (
+        <AppCard>
+          <Text style={styles.cardTitle}>Test History</Text>
+
+          {testsLoading ? (
+            <LoadingState label="Loading test history..." />
+          ) : testsError ? (
+            <ErrorState
+              title="Test history unavailable"
+              description={testsError}
+              actionLabel="Retry"
+              onActionPress={() => {
+                void loadTests();
+              }}
+              compact
+            />
+          ) : testHistory.length === 0 ? (
+            <Text style={styles.emptyText}>No test records added yet.</Text>
+          ) : (
+            testHistory.map((record) => (
+              <View key={record.id} style={styles.recordItem}>
+                <View style={styles.recordHeader}>
+                  <Text style={styles.recordTitle}>{record.testType}</Text>
+                  <InfoPill
+                    label={TEST_RESULT_LABELS[record.result]}
+                    color={TEST_RESULT_COLORS[record.result]}
+                  />
+                </View>
+                <Text style={styles.recordMeta}>Performed: {formatDateTime(record.performedAt)}</Text>
+                {record.performedBy ? (
+                  <Text style={styles.recordMeta}>Performed By: {record.performedBy}</Text>
+                ) : null}
+                {record.notes ? <Text style={styles.recordBody}>{record.notes}</Text> : null}
+              </View>
+            ))
+          )}
+
+          <View style={styles.sectionDivider} />
+          <View style={styles.formHeaderRow}>
+            <View style={styles.formHeaderText}>
+              <Text style={styles.formTitle}>Add Test Record</Text>
+              <Text style={styles.helperText}>
+                {canWriteRecords
+                  ? 'Create a new backend test record when work is complete.'
+                  : 'Your current role can view test history but cannot create new records.'}
+              </Text>
+            </View>
+            {canWriteRecords ? (
+              <AppButton
+                label={showTestComposer ? 'Hide Form' : 'New Test'}
+                variant="secondary"
+                onPress={() => setShowTestComposer((prev) => !prev)}
+              />
+            ) : null}
+          </View>
+
+          {showTestComposer && canWriteRecords ? (
+            <View style={styles.composer}>
+              <AppTextInput
+                label="Test Type"
+                required
+                value={testForm.testType}
+                onChangeText={(value) => {
+                  setTestForm((prev) => ({ ...prev, testType: value }));
+                  setTestFormError('');
+                }}
+                placeholder="Example: Functional Verification"
+              />
+
+              <View style={styles.formGroup}>
+                <Text style={styles.filterLabel}>Result</Text>
+                <View style={styles.inlineRow}>
+                  {testResultOptions.map((option) => (
+                    <OptionChip
+                      key={option.value}
+                      label={option.label}
+                      selected={testForm.result === option.value}
+                      onPress={() => setTestForm((prev) => ({ ...prev, result: option.value }))}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <AppTextInput
+                label="Notes"
+                value={testForm.notes}
+                onChangeText={(value) => {
+                  setTestForm((prev) => ({ ...prev, notes: value }));
+                  setTestFormError('');
+                }}
+                placeholder="Optional details"
+                multiline
+              />
+
+              {testFormError ? <Text style={styles.errorText}>{testFormError}</Text> : null}
+
+              <AppButton
+                label={savingTest ? 'Saving Test Record...' : 'Save Test Record'}
+                onPress={() => {
+                  void submitTestRecord();
+                }}
+                disabled={savingTest}
+              />
+            </View>
+          ) : null}
+        </AppCard>
+      ) : null}
+
+      {activeSection === 'issues' ? (
+        <AppCard>
+          <Text style={styles.cardTitle}>Issue Records</Text>
+
+          {issuesLoading ? (
+            <LoadingState label="Loading issue records..." />
+          ) : issuesError ? (
+            <ErrorState
+              title="Issue records unavailable"
+              description={issuesError}
+              actionLabel="Retry"
+              onActionPress={() => {
+                void loadIssues();
+              }}
+              compact
+            />
+          ) : issueRecords.length === 0 ? (
+            <Text style={styles.emptyText}>No issue records added yet.</Text>
+          ) : (
+            issueRecords.map((record) => (
+              <View key={record.id} style={styles.recordItem}>
+                <View style={styles.recordHeader}>
+                  <Text style={styles.recordTitle}>{record.title}</Text>
+                  <View style={styles.badgeRow}>
+                    <InfoPill
+                      label={record.severity.toUpperCase()}
+                      color={ISSUE_SEVERITY_COLORS[record.severity]}
+                    />
+                    <InfoPill label={ISSUE_STATUS_LABELS[record.status]} color={colors.primary} />
+                  </View>
+                </View>
+                <Text style={styles.recordMeta}>Reported: {formatDateTime(record.reportedAt)}</Text>
+                {record.description ? <Text style={styles.recordBody}>{record.description}</Text> : null}
+              </View>
+            ))
+          )}
+
+          <View style={styles.sectionDivider} />
+          <View style={styles.formHeaderRow}>
+            <View style={styles.formHeaderText}>
+              <Text style={styles.formTitle}>Add Issue Record</Text>
+              <Text style={styles.helperText}>
+                {canWriteRecords
+                  ? 'Log a backend issue record for faults or field observations.'
+                  : 'Your current role can view issues but cannot create new records.'}
+              </Text>
+            </View>
+            {canWriteRecords ? (
+              <AppButton
+                label={showIssueComposer ? 'Hide Form' : 'New Issue'}
+                variant="secondary"
+                onPress={() => setShowIssueComposer((prev) => !prev)}
+              />
+            ) : null}
+          </View>
+
+          {showIssueComposer && canWriteRecords ? (
+            <View style={styles.composer}>
+              <AppTextInput
+                label="Issue Title"
+                required
+                value={issueForm.title}
+                onChangeText={(value) => {
+                  setIssueForm((prev) => ({ ...prev, title: value }));
+                  setIssueFormError('');
+                }}
+                placeholder="Example: Connector latch fault"
+              />
+
+              <View style={styles.formGroup}>
+                <Text style={styles.filterLabel}>Severity</Text>
+                <View style={styles.inlineRow}>
+                  {issueSeverityOptions.map((option) => (
+                    <OptionChip
+                      key={option.value}
+                      label={option.label}
+                      selected={issueForm.severity === option.value}
+                      onPress={() => setIssueForm((prev) => ({ ...prev, severity: option.value }))}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <AppTextInput
+                label="Description"
+                value={issueForm.description}
+                onChangeText={(value) => {
+                  setIssueForm((prev) => ({ ...prev, description: value }));
+                  setIssueFormError('');
+                }}
+                placeholder="Optional details"
+                multiline
+              />
+
+              {issueFormError ? <Text style={styles.errorText}>{issueFormError}</Text> : null}
+
+              <AppButton
+                label={savingIssue ? 'Saving Issue Record...' : 'Save Issue Record'}
+                onPress={() => {
+                  void submitIssueRecord();
+                }}
+                disabled={savingIssue}
+              />
+            </View>
+          ) : null}
+        </AppCard>
+      ) : null}
     </AppScreen>
   );
 }
@@ -649,7 +937,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 8,
-    marginBottom: 2,
   },
   headerMain: {
     flex: 1,
@@ -663,6 +950,17 @@ const styles = StyleSheet.create({
   stationMeta: {
     fontSize: 13,
     color: colors.mutedText,
+    lineHeight: 18,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  sectionSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   cardTitle: {
     fontSize: 15,
@@ -731,10 +1029,23 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     marginVertical: 4,
   },
+  formHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  formHeaderText: {
+    flex: 1,
+    gap: 4,
+  },
   formTitle: {
     fontSize: 14,
     fontWeight: '700',
     color: colors.text,
+  },
+  composer: {
+    gap: 12,
   },
   formGroup: {
     gap: 8,

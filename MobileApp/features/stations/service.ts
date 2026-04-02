@@ -11,7 +11,7 @@ import type {
 import { dateOnlyToIsoDateTime, isValidDateOnly, isoToDateOnly } from '@/utils/date';
 import { parseSelectOptions } from '@/utils/custom-field';
 
-import type { StationDetails, StationListItem } from './types';
+import type { StationFormRecord, StationListItem, StationListPage } from './types';
 
 type SuccessResponse<T> = {
   data: T;
@@ -27,27 +27,31 @@ type PaginatedResponse<T> = {
   };
 };
 
-type ApiStation = {
+type ApiStationSummary = {
   id: string;
   name: string;
   code: string;
   qrCode: string;
   brand: string;
   model: string;
-  serialNumber: string;
   powerKw: number;
   currentType: Station['currentType'];
   socketType: string;
   location: string;
   status: Extract<Station['status'], 'active' | 'maintenance' | 'inactive' | 'faulty'>;
   lastTestDate: string | null;
-  notes?: string | null;
-  createdAt?: string;
   updatedAt: string;
   isArchived: boolean;
   archivedAt: string | null;
   summary: NonNullable<Station['summary']>;
   sync: NonNullable<Station['sync']>;
+};
+
+type ApiStation = ApiStationSummary & {
+  model: string;
+  serialNumber: string;
+  notes?: string | null;
+  createdAt?: string;
   customFields?: Record<string, unknown>;
 };
 
@@ -69,7 +73,7 @@ type StationUpsertPayload = {
   customFields?: Record<string, unknown>;
 };
 
-const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 20;
 
 type StationFilterMetadataFilters = Pick<
   StationListFilters,
@@ -242,32 +246,22 @@ const mapApiStation = (station: ApiStation): Station => ({
   customFields: station.customFields ?? {},
 });
 
-const buildVisibleCustomFields = (
-  station: ApiStation,
-  definitions: CustomFieldDefinition[],
-): Record<string, string> => {
-  if (!station.customFields) {
-    return {};
-  }
-
-  const visibleKeys = new Set(
-    definitions
-      .filter((definition) => definition.isActive && definition.isVisibleInList)
-      .map((definition) => definition.key),
-  );
-
-  const visibleCustomFields: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(station.customFields)) {
-    if (!visibleKeys.has(key)) {
-      continue;
-    }
-
-    visibleCustomFields[key] = formatCustomFieldValue(value);
-  }
-
-  return visibleCustomFields;
-};
+const mapApiStationListItem = (station: ApiStationSummary): StationListItem => ({
+  id: station.id,
+  name: station.name,
+  code: station.code,
+  location: station.location,
+  brand: station.brand,
+  model: station.model,
+  powerKw: station.powerKw,
+  currentType: station.currentType,
+  status: station.status,
+  lastTestDate: station.lastTestDate,
+  updatedAt: station.updatedAt,
+  isArchived: station.isArchived,
+  archivedAt: station.archivedAt,
+  summary: station.summary,
+});
 
 const buildCustomValueMap = (
   station: ApiStation,
@@ -355,41 +349,54 @@ const buildMetadataQuery = (
 const fetchStationPage = async (
   query: StationListQuery,
   page = 1,
-): Promise<PaginatedResponse<ApiStation>> => {
-  return apiFetch<PaginatedResponse<ApiStation>>('/stations', {
+  limit = DEFAULT_PAGE_SIZE,
+  view: 'compact' | 'full' = 'full',
+): Promise<PaginatedResponse<ApiStationSummary | ApiStation>> => {
+  return apiFetch<PaginatedResponse<ApiStationSummary | ApiStation>>('/stations', {
     query: {
       ...query,
       page,
-      limit: DEFAULT_PAGE_SIZE,
-      view: 'full',
+      limit,
+      view,
     },
   });
 };
 
 const listAllStations = async (query: StationListQuery = {}): Promise<ApiStation[]> => {
-  const firstPage = await fetchStationPage(query, 1);
+  const firstPage = (await fetchStationPage(query, 1, DEFAULT_PAGE_SIZE, 'full')) as PaginatedResponse<ApiStation>;
   const stations = [...firstPage.data];
 
   for (let page = 2; page <= firstPage.meta.totalPages; page += 1) {
-    const response = await fetchStationPage(query, page);
+    const response = (await fetchStationPage(
+      query,
+      page,
+      DEFAULT_PAGE_SIZE,
+      'full',
+    )) as PaginatedResponse<ApiStation>;
     stations.push(...response.data);
   }
 
   return stations;
 };
 
-export const getStationList = async (filters: StationListFilters): Promise<StationListItem[]> => {
-  const [definitions, query] = await Promise.all([
-    getCustomFieldDefinitions(true),
-    buildStationListQuery(filters),
-  ]);
+export const getStationList = async (
+  filters: StationListFilters,
+  page = 1,
+  limit = DEFAULT_PAGE_SIZE,
+): Promise<StationListPage> => {
+  const query = await buildStationListQuery(filters);
+  const response = (await fetchStationPage(
+    query,
+    page,
+    limit,
+    'compact',
+  )) as PaginatedResponse<ApiStationSummary>;
 
-  const stations = await listAllStations(query);
-
-  return stations.map((station) => ({
-    ...mapApiStation(station),
-    visibleCustomFields: buildVisibleCustomFields(station, definitions),
-  }));
+  return {
+    items: response.data.map(mapApiStationListItem),
+    meta: response.meta,
+    hasMore: response.meta.page < response.meta.totalPages,
+  };
 };
 
 export const getStationBrands = async (): Promise<string[]> => {
@@ -454,7 +461,20 @@ export const getStationFilterOptions = async (
   };
 };
 
-export const getStationById = async (stationId: string): Promise<StationDetails | null> => {
+export const getStationById = async (stationId: string): Promise<Station | null> => {
+  try {
+    const response = await apiFetch<SuccessResponse<ApiStation>>(`/stations/${stationId}`);
+    return mapApiStation(response.data);
+  } catch (error) {
+    if (isApiError(error) && error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+export const getStationByIdForForm = async (stationId: string): Promise<StationFormRecord | null> => {
   try {
     const [response, definitions] = await Promise.all([
       apiFetch<SuccessResponse<ApiStation>>(`/stations/${stationId}`),
@@ -562,6 +582,32 @@ export const getRecentlyUpdatedStations = async (limit = 5): Promise<Station[]> 
   });
 
   return response.data.map(mapApiStation);
+};
+
+export const getDashboardSummary = async (): Promise<{
+  totalStations: number;
+  activeStations: number;
+  archivedStations: number;
+  maintenanceStations: number;
+  faultyStations: number;
+  totalOpenIssues: number;
+  totalCriticalIssues: number;
+  recentTestCount: number;
+}> => {
+  const response = await apiFetch<
+    SuccessResponse<{
+      totalStations: number;
+      activeStations: number;
+      archivedStations: number;
+      maintenanceStations: number;
+      faultyStations: number;
+      totalOpenIssues: number;
+      totalCriticalIssues: number;
+      recentTestCount: number;
+    }>
+  >('/dashboard/summary');
+
+  return response.data;
 };
 
 export const archiveStation = async (stationId: string): Promise<void> => {

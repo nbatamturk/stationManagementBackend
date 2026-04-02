@@ -2,7 +2,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect } from 'react';
 
-import { AppScreen, LoadingState } from '@/components';
+import { AppButton, AppCard, AppScreen, ErrorState, LoadingState } from '@/components';
 import { AuthProvider, useAuth } from '@/features/auth';
 
 export { ErrorBoundary } from 'expo-router';
@@ -15,12 +15,12 @@ const stackScreenOptions = {
 };
 
 const RootNavigator = (): React.JSX.Element => {
-  const { status, isAuthenticated } = useAuth();
+  const { status, isAuthenticated, retrySessionRestore, signOut, sessionErrorMessage, user } = useAuth();
   const router = useRouter();
   const segments = useSegments();
 
   useEffect(() => {
-    if (status === 'loading') {
+    if (status === 'loading' || status === 'retry-required') {
       return;
     }
 
@@ -40,6 +40,34 @@ const RootNavigator = (): React.JSX.Element => {
     return (
       <AppScreen>
         <LoadingState label="Restoring session..." />
+      </AppScreen>
+    );
+  }
+
+  if (status === 'retry-required') {
+    return (
+      <AppScreen contentContainerStyle={{ justifyContent: 'center' }}>
+        <AppCard style={{ gap: 14 }}>
+          <ErrorState
+            title={user ? `Reconnect ${user.fullName.split(' ')[0]}'s session` : 'Reconnect session'}
+            description={
+              sessionErrorMessage ??
+              'The saved session could not be verified right now. Retry instead of signing in again.'
+            }
+            actionLabel="Retry Session"
+            onActionPress={() => {
+              void retrySessionRestore();
+            }}
+            compact
+          />
+          <AppButton
+            label="Sign Out"
+            variant="secondary"
+            onPress={() => {
+              void signOut();
+            }}
+          />
+        </AppCard>
       </AppScreen>
     );
   }

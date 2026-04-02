@@ -1,27 +1,51 @@
 import { CameraView, type BarcodeScanningResult, useCameraPermissions } from 'expo-camera';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { AppButton, AppCard, AppScreen, LoadingState, colors } from '@/components';
+import {
+  AppButton,
+  AppCard,
+  AppScreen,
+  AppTextInput,
+  ErrorState,
+  LoadingState,
+  colors,
+} from '@/components';
 import { getStationByQrCode } from '@/features/stations';
+
+type ScanResultState =
+  | {
+      kind: 'not_found';
+      qrCode: string;
+      message: string;
+    }
+  | {
+      kind: 'error';
+      qrCode: string;
+      message: string;
+    }
+  | null;
+
+const DUPLICATE_SCAN_WINDOW_MS = 2500;
 
 export default function QrScanScreen(): React.JSX.Element {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
+  const [manualQrCode, setManualQrCode] = useState('');
   const [isChecking, setIsChecking] = useState(false);
   const [isScannerEnabled, setIsScannerEnabled] = useState(true);
   const [scannedQrCode, setScannedQrCode] = useState<string>('');
-  const [notFoundMessage, setNotFoundMessage] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [scanResult, setScanResult] = useState<ScanResultState>(null);
+  const lastHandledScanRef = useRef<{ qrCode: string; timestamp: number } | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       setIsScannerEnabled(true);
       setScannedQrCode('');
-      setNotFoundMessage('');
-      setErrorMessage('');
+      setScanResult(null);
       setIsChecking(false);
+      lastHandledScanRef.current = null;
     }, []),
   );
 
@@ -32,11 +56,25 @@ export default function QrScanScreen(): React.JSX.Element {
       return;
     }
 
+    const lastHandled = lastHandledScanRef.current;
+
+    if (
+      lastHandled &&
+      lastHandled.qrCode === sanitized &&
+      Date.now() - lastHandled.timestamp < DUPLICATE_SCAN_WINDOW_MS
+    ) {
+      return;
+    }
+
+    lastHandledScanRef.current = {
+      qrCode: sanitized,
+      timestamp: Date.now(),
+    };
+
     setIsChecking(true);
     setIsScannerEnabled(false);
     setScannedQrCode(sanitized);
-    setNotFoundMessage('');
-    setErrorMessage('');
+    setScanResult(null);
 
     try {
       const station = await getStationByQrCode(sanitized);
@@ -46,13 +84,21 @@ export default function QrScanScreen(): React.JSX.Element {
         return;
       }
 
-      router.push({ pathname: '/stations/edit', params: { qrCode: sanitized } });
+      setScanResult({
+        kind: 'not_found',
+        qrCode: sanitized,
+        message:
+          'No backend station matches this QR code yet. Create a station only if this code is valid and expected.',
+      });
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? `Could not check scanned QR: ${error.message}`
-          : 'Could not check scanned QR.',
-      );
+      setScanResult({
+        kind: 'error',
+        qrCode: sanitized,
+        message:
+          error instanceof Error
+            ? `Could not check the scanned QR code: ${error.message}`
+            : 'Could not check the scanned QR code.',
+      });
     } finally {
       setIsChecking(false);
     }
@@ -64,9 +110,59 @@ export default function QrScanScreen(): React.JSX.Element {
 
   const retryScan = (): void => {
     setIsScannerEnabled(true);
-    setNotFoundMessage('');
-    setErrorMessage('');
+    setScannedQrCode('');
+    setScanResult(null);
+    setIsChecking(false);
   };
+
+  const submitManualLookup = (): void => {
+    void handleScannedValue(manualQrCode);
+  };
+
+  const lookupCard = (
+    <AppCard>
+      <Text style={styles.panelTitle}>Manual QR Lookup</Text>
+      <AppTextInput
+        label="QR Code"
+        value={manualQrCode}
+        onChangeText={setManualQrCode}
+        placeholder="Enter or paste the station QR code"
+        autoCapitalize="none"
+        returnKeyType="go"
+        onSubmitEditing={() => submitManualLookup()}
+      />
+      <AppButton
+        label={isChecking ? 'Checking QR...' : 'Check QR'}
+        onPress={submitManualLookup}
+        disabled={isChecking || manualQrCode.trim().length < 2}
+      />
+    </AppCard>
+  );
+
+  const resultPanel =
+    scanResult?.kind === 'not_found' ? (
+      <ErrorState
+        title="QR code not found"
+        description={scanResult.message}
+        actionLabel="Create Station"
+        onActionPress={() =>
+          router.push({ pathname: '/stations/edit', params: { qrCode: scanResult.qrCode } })
+        }
+        secondaryActionLabel="Search Stations"
+        onSecondaryActionPress={() =>
+          router.push({ pathname: '/stations', params: { search: scanResult.qrCode } })
+        }
+        compact
+      />
+    ) : scanResult?.kind === 'error' ? (
+      <ErrorState
+        title="QR lookup failed"
+        description={scanResult.message}
+        actionLabel="Try Again"
+        onActionPress={retryScan}
+        compact
+      />
+    ) : null;
 
   if (!permission) {
     return (
@@ -80,11 +176,15 @@ export default function QrScanScreen(): React.JSX.Element {
     return (
       <AppScreen>
         <AppCard>
+          <Text style={styles.panelTitle}>Camera Access Required For Fast Scan</Text>
           <Text style={styles.helperText}>
-            Allow camera access to scan QR codes and open station records directly.
+            Allow camera access to scan station QR codes directly. You can still perform a manual
+            QR lookup below.
           </Text>
           <AppButton label="Grant Camera Permission" onPress={() => void requestPermission()} />
         </AppCard>
+        {resultPanel}
+        {lookupCard}
       </AppScreen>
     );
   }
@@ -92,6 +192,12 @@ export default function QrScanScreen(): React.JSX.Element {
   return (
     <AppScreen>
       <AppCard>
+        <Text style={styles.panelTitle}>Scan Station QR</Text>
+        <Text style={styles.helperText}>
+          Point the camera at the station QR code. Duplicate reads are ignored briefly to prevent
+          accidental double handling.
+        </Text>
+
         <View style={styles.cameraContainer}>
           <CameraView
             style={styles.camera}
@@ -106,34 +212,34 @@ export default function QrScanScreen(): React.JSX.Element {
           </View>
         </View>
 
-        {isChecking ? <LoadingState label="Checking scanned QR..." /> : null}
+        {isChecking ? <LoadingState label="Checking scanned QR..." compact /> : null}
 
         {scannedQrCode ? (
           <Text style={styles.scannedText}>
-            QR: <Text style={styles.scannedValue}>{scannedQrCode}</Text>
+            Last QR: <Text style={styles.scannedValue}>{scannedQrCode}</Text>
           </Text>
-        ) : (
-          <Text style={styles.helperText}>Point camera to station QR code.</Text>
-        )}
+        ) : null}
 
-        {notFoundMessage ? <Text style={styles.notFoundText}>{notFoundMessage}</Text> : null}
-        {errorMessage ? <Text style={styles.notFoundText}>{errorMessage}</Text> : null}
+        {resultPanel}
 
         {!isScannerEnabled ? (
           <View style={styles.actionRow}>
-            <AppButton
-              label="Scan Again"
-              variant="secondary"
-              onPress={retryScan}
-            />
+            <AppButton label="Scan Again" variant="secondary" onPress={retryScan} />
           </View>
         ) : null}
       </AppCard>
+
+      {lookupCard}
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
+  panelTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+  },
   cameraContainer: {
     borderRadius: 12,
     overflow: 'hidden',
@@ -170,11 +276,6 @@ const styles = StyleSheet.create({
   scannedValue: {
     fontWeight: '600',
     color: colors.text,
-  },
-  notFoundText: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: '600',
   },
   actionRow: {
     alignSelf: 'flex-start',

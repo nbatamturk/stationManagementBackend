@@ -13,6 +13,7 @@ import {
 
 import { AppButton, AppCard, AppScreen, AppTextInput, colors } from '@/components';
 import { useAuth } from '@/features/auth';
+import { getApiErrorMessage, isApiError } from '@/lib/api/errors';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SUPPORT_EMAIL =
@@ -21,6 +22,15 @@ const SUPPORT_EMAIL =
 type FormErrors = {
   email?: string;
   password?: string;
+};
+
+const formatRetryAfterLabel = (retryAfterSeconds: number): string => {
+  if (retryAfterSeconds < 60) {
+    return `${retryAfterSeconds} second${retryAfterSeconds === 1 ? '' : 's'}`;
+  }
+
+  const minutes = Math.ceil(retryAfterSeconds / 60);
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 };
 
 export default function LoginScreen(): React.JSX.Element {
@@ -39,6 +49,10 @@ export default function LoginScreen(): React.JSX.Element {
   };
 
   const handleSubmit = async (): Promise<void> => {
+    if (submitting) {
+      return;
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
     const nextErrors: FormErrors = {};
 
@@ -65,10 +79,29 @@ export default function LoginScreen(): React.JSX.Element {
       await signIn(normalizedEmail, password);
       router.replace('/');
     } catch (error) {
+      if (isApiError(error)) {
+        if (error.code === 'INVALID_CREDENTIALS') {
+          setErrorMessage('Email or password is incorrect. Check your credentials and try again.');
+          return;
+        }
+
+        if (error.code === 'LOGIN_RATE_LIMITED') {
+          setErrorMessage(
+            error.retryAfterSeconds
+              ? `Too many login attempts. Try again in ${formatRetryAfterLabel(error.retryAfterSeconds)}.`
+              : 'Too many login attempts. Please wait and try again.',
+          );
+          return;
+        }
+
+        if (error.kind === 'network') {
+          setErrorMessage('Could not reach the server. Check your connection and try again.');
+          return;
+        }
+      }
+
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'Login failed. Check your credentials and try again.',
+        getApiErrorMessage(error, 'Login failed. Check your credentials and try again.'),
       );
     } finally {
       setSubmitting(false);
@@ -90,8 +123,8 @@ export default function LoginScreen(): React.JSX.Element {
               <Text style={styles.formEyebrow}>Welcome Back</Text>
               <Text style={styles.formTitle}>Sign In To Continue</Text>
               <Text style={styles.formSubtitle}>
-                Use your assigned account. The app restores your session automatically after
-                successful login.
+                Use your assigned account. The app restores your session on this device and lets
+                you retry safely if the network is unavailable.
               </Text>
             </View>
 
@@ -165,7 +198,8 @@ export default function LoginScreen(): React.JSX.Element {
             <View style={styles.sessionNote}>
               <Ionicons name="lock-closed-outline" size={15} color={colors.primary} />
               <Text style={styles.sessionNoteText}>
-                Tokens are stored securely on device and invalid sessions are cleared automatically.
+                Tokens are stored securely on device. Expired sessions are cleared automatically,
+                and temporary connection failures can be retried.
               </Text>
             </View>
 

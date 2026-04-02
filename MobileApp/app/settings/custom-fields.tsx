@@ -246,7 +246,7 @@ export default function CustomFieldSettingsScreen(): React.JSX.Element {
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
         {!isAdmin ? (
           <Text style={styles.readOnlyText}>
-            Backend Phase 1 keeps this screen read-only for non-admin users.
+            This screen is read-only for non-admin users.
           </Text>
         ) : null}
 

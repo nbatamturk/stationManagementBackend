@@ -2,6 +2,7 @@ export * from './AppButton';
 export * from './AppCard';
 export * from './AppScreen';
 export * from './AppTextInput';
+export * from './ErrorState';
 export * from './EmptyState';
 export * from './LabeledSwitch';
 export * from './LoadingState';

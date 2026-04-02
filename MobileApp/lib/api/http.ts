@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 import { getAccessToken, handleUnauthorized, setAccessToken } from '@/lib/auth/session-store';
-import { clearStoredAccessToken } from '@/lib/auth/token-storage';
+import { clearStoredSession } from '@/lib/auth/token-storage';
 
 import { ApiError } from './errors';
 
@@ -47,9 +47,31 @@ const hasJsonBody = (body: BodyInit | null | undefined): boolean => {
   return typeof body === 'string';
 };
 
+const getRetryAfterSeconds = (
+  details: unknown,
+  retryAfterHeader: string | null,
+): number | null => {
+  if (retryAfterHeader) {
+    const parsedHeader = Number(retryAfterHeader);
+
+    if (Number.isFinite(parsedHeader) && parsedHeader > 0) {
+      return parsedHeader;
+    }
+  }
+
+  if (typeof details !== 'object' || details === null) {
+    return null;
+  }
+
+  const retryAfterSeconds =
+    'retryAfterSeconds' in details ? (details as { retryAfterSeconds?: unknown }).retryAfterSeconds : null;
+
+  return typeof retryAfterSeconds === 'number' && retryAfterSeconds > 0 ? retryAfterSeconds : null;
+};
+
 const clearAuthState = async (): Promise<void> => {
   setAccessToken(null);
-  await clearStoredAccessToken();
+  await clearStoredSession();
   handleUnauthorized();
 };
 
@@ -76,10 +98,19 @@ export async function apiFetch<T>(
     }
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}${buildQueryString(query)}`, {
-    ...init,
-    headers,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}${buildQueryString(query)}`, {
+      ...init,
+      headers,
+    });
+  } catch {
+    throw new ApiError('Could not reach the server. Check your connection and try again.', 0, 'NETWORK_ERROR', null, {
+      kind: 'network',
+      isRetryable: true,
+    });
+  }
 
   const contentType = response.headers.get('content-type') ?? '';
   const isJsonResponse = contentType.includes('application/json');
@@ -89,16 +120,34 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     const apiErrorPayload = payload as ApiErrorPayload | null;
+    const retryAfterSeconds = getRetryAfterSeconds(
+      apiErrorPayload?.details,
+      response.headers.get('retry-after'),
+    );
 
     if (response.status === 401 && auth) {
       await clearAuthState();
     }
+
+    const kind =
+      response.status === 401
+        ? 'unauthorized'
+        : response.status === 429
+          ? 'rate_limit'
+          : response.status >= 500
+            ? 'server'
+            : 'client';
 
     throw new ApiError(
       apiErrorPayload?.message ?? `HTTP ${response.status}`,
       response.status,
       apiErrorPayload?.code,
       apiErrorPayload?.details,
+      {
+        kind,
+        isRetryable: kind === 'rate_limit' || kind === 'server',
+        retryAfterSeconds,
+      },
     );
   }
 

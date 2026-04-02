@@ -10,6 +10,9 @@ type SuccessResponse<T> = {
   data: T;
 };
 
+const definitionCache = new Map<string, CustomFieldDefinition[]>();
+const definitionRequestCache = new Map<string, Promise<CustomFieldDefinition[]>>();
+
 type ApiCustomFieldDefinition = {
   id: string;
   key: string;
@@ -67,17 +70,47 @@ const mapDefinition = (
   isActive: definition.isActive,
 });
 
+const invalidateDefinitionCache = (): void => {
+  definitionCache.clear();
+  definitionRequestCache.clear();
+};
+
 export const getCustomFieldDefinitions = async (
   activeOnly = false,
+  forceRefresh = false,
 ): Promise<CustomFieldDefinition[]> => {
-  const response = await apiFetch<SuccessResponse<ApiCustomFieldDefinition[]>>(
-    '/custom-fields',
-    {
-      query: activeOnly ? { isActive: true } : undefined,
-    },
-  );
+  const cacheKey = activeOnly ? 'active' : 'all';
 
-  return response.data.map(mapDefinition);
+  if (!forceRefresh) {
+    const cachedDefinitions = definitionCache.get(cacheKey);
+
+    if (cachedDefinitions) {
+      return cachedDefinitions;
+    }
+
+    const pendingRequest = definitionRequestCache.get(cacheKey);
+
+    if (pendingRequest) {
+      return pendingRequest;
+    }
+  }
+
+  const request = apiFetch<SuccessResponse<ApiCustomFieldDefinition[]>>('/custom-fields', {
+    query: activeOnly ? { isActive: true } : undefined,
+  })
+    .then((response) => response.data.map(mapDefinition))
+    .then((definitions) => {
+      definitionCache.set(cacheKey, definitions);
+      definitionRequestCache.delete(cacheKey);
+      return definitions;
+    })
+    .catch((error) => {
+      definitionRequestCache.delete(cacheKey);
+      throw error;
+    });
+
+  definitionRequestCache.set(cacheKey, request);
+  return request;
 };
 
 export const getStationCustomValues = async (
@@ -128,6 +161,7 @@ export const upsertCustomFieldDefinition = async (
         },
       );
 
+  invalidateDefinitionCache();
   return response.data.id;
 };
 
@@ -142,6 +176,7 @@ export const setCustomFieldActive = async (
       body: JSON.stringify({ isActive }),
     },
   );
+  invalidateDefinitionCache();
 };
 
 export const saveStationCustomValues = async (

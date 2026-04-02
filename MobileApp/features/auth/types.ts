@@ -23,6 +23,7 @@ export interface LoginResponseData {
 }
 
 export interface AuthState {
-  status: 'loading' | 'authenticated' | 'unauthenticated';
+  status: 'loading' | 'authenticated' | 'unauthenticated' | 'retry-required';
   user: AuthUser | null;
+  sessionErrorMessage: string | null;
 }

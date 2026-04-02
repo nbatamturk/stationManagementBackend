@@ -14,14 +14,14 @@ import {
 } from '@/components';
 import { useAuth } from '@/features/auth';
 import { getCustomFieldDefinitions } from '@/features/custom-fields';
-import { getStationById, upsertStation } from '@/features/stations';
+import { getStationByIdForForm, upsertStation } from '@/features/stations';
 import type {
   CustomFieldDefinition,
   StationCustomValuesByFieldId,
   StationDraft,
   StationFormValues,
 } from '@/types';
-import type { StationDetails } from '@/features/stations';
+import type { StationFormRecord } from '@/features/stations';
 import { isValidDateOnly, isoToDateOnly } from '@/utils/date';
 import { parseSelectOptions } from '@/utils/custom-field';
 import {
@@ -63,7 +63,7 @@ const createCustomValueMap = (
   return nextValues;
 };
 
-const mapStationToFormValues = (station: StationDetails): StationFormValues => ({
+const mapStationToFormValues = (station: StationFormRecord): StationFormValues => ({
   name: station.name,
   code: station.code,
   qrCode: station.qrCode,
@@ -213,7 +213,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [station, setStation] = useState<StationDetails | null>(null);
+  const [station, setStation] = useState<StationFormRecord | null>(null);
   const [customDefinitions, setCustomDefinitions] = useState<CustomFieldDefinition[]>([]);
   const [formValues, setFormValues] = useState<StationFormValues>(createDefaultFormValues(prefilledQrCode));
   const [customValues, setCustomValues] = useState<StationCustomValuesByFieldId>({});
@@ -224,7 +224,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
   const formTitle = isEditMode ? 'Edit Station' : 'Create Station';
   const formSubtitle = isEditMode
-    ? 'Update the backend record while preserving the current mobile UX.'
+    ? 'Update this backend station record with clear, field-ready details.'
     : 'Create a new station directly in backend records.';
 
   const customDefinitionMap = useMemo(
@@ -255,7 +255,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
         return;
       }
 
-      const stationResult = await getStationById(stationId);
+      const stationResult = await getStationByIdForForm(stationId);
 
       if (!stationResult) {
         setStation(null);
@@ -331,6 +331,10 @@ export default function AddEditStationScreen(): React.JSX.Element {
   };
 
   const handleSubmit = async (): Promise<void> => {
+    if (submitting) {
+      return;
+    }
+
     if (!canWriteStations) {
       setSubmitError('Your role does not allow creating or editing stations.');
       return;
@@ -409,7 +413,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
       setSubmitError(
         error instanceof Error
           ? error.message
-          : 'Station could not be saved. Please try again.',
+          : 'Station could not be saved. Check the form and try again.',
       );
     } finally {
       setSubmitting(false);
@@ -491,8 +495,8 @@ export default function AddEditStationScreen(): React.JSX.Element {
           <View style={styles.infoBox}>
             <Text style={styles.infoTitle}>Scanned QR Prefilled</Text>
             <Text style={styles.infoText}>
-              No backend station matched the scanned QR value. Review the form and create a new
-              record if appropriate.
+              No backend station matched this QR code. Review the details carefully before creating
+              a new backend station.
             </Text>
           </View>
         ) : null}

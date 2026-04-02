@@ -2,107 +2,193 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppCard, AppScreen, EmptyState, LoadingState, StatusBadge, colors } from '@/components';
-import { getDashboardMetrics, getRecentlyUpdatedStations } from '@/features/stations';
+import {
+  AppCard,
+  AppScreen,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  SectionHeader,
+  StatusBadge,
+  colors,
+} from '@/components';
+import { useAuth } from '@/features/auth';
+import {
+  getDashboardSummary,
+  getRecentlyUpdatedStations,
+} from '@/features/stations';
 import type { Station } from '@/types';
-import { formatDateShort } from '@/utils/date';
+import { formatDateTime } from '@/utils/date';
 
-type DashboardMetrics = {
-  total: number;
-  active: number;
-  maintenance: number;
-  inactive: number;
-  faulty: number;
-  archived: number;
-};
-
-const defaultMetrics: DashboardMetrics = {
-  total: 0,
-  active: 0,
-  maintenance: 0,
-  inactive: 0,
-  faulty: 0,
-  archived: 0,
+type DashboardSummary = {
+  totalStations: number;
+  activeStations: number;
+  archivedStations: number;
+  maintenanceStations: number;
+  faultyStations: number;
+  totalOpenIssues: number;
+  totalCriticalIssues: number;
+  recentTestCount: number;
 };
 
 export default function DashboardScreen(): React.JSX.Element {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [metrics, setMetrics] = useState<DashboardMetrics>(defaultMetrics);
-  const [recentStations, setRecentStations] = useState<Station[]>([]);
-  const [errorMessage, setErrorMessage] = useState('');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
-  const loadDashboard = useCallback(async (showLoadingState = true) => {
+  const [summaryLoading, setSummaryLoading] = useState(isAdmin);
+  const [recentLoading, setRecentLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [summaryError, setSummaryError] = useState('');
+  const [recentStations, setRecentStations] = useState<Station[]>([]);
+  const [recentError, setRecentError] = useState('');
+
+  const loadSummary = useCallback(
+    async (showLoadingState = true) => {
+      if (!isAdmin) {
+        setSummary(null);
+        setSummaryError('');
+        setSummaryLoading(false);
+        return;
+      }
+
+      if (showLoadingState) {
+        setSummaryLoading(true);
+      }
+
+      setSummaryError('');
+
+      try {
+        const result = await getDashboardSummary();
+        setSummary(result);
+      } catch (error) {
+        setSummaryError(
+          error instanceof Error
+            ? `Could not load dashboard summary: ${error.message}`
+            : 'Could not load dashboard summary.',
+        );
+      } finally {
+        if (showLoadingState) {
+          setSummaryLoading(false);
+        }
+      }
+    },
+    [isAdmin],
+  );
+
+  const loadRecentStations = useCallback(async (showLoadingState = true) => {
     if (showLoadingState) {
-      setLoading(true);
+      setRecentLoading(true);
     }
 
-    setErrorMessage('');
+    setRecentError('');
 
     try {
-      const [metricsResult, stationsResult] = await Promise.all([
-        getDashboardMetrics(),
-        getRecentlyUpdatedStations(5),
-      ]);
-
-      setMetrics(metricsResult);
-      setRecentStations(stationsResult);
+      const result = await getRecentlyUpdatedStations(8);
+      setRecentStations(result);
     } catch (error) {
-      setErrorMessage(
+      setRecentError(
         error instanceof Error
-          ? `Could not refresh dashboard: ${error.message}`
-          : 'Could not refresh dashboard.',
+          ? `Could not load recent stations: ${error.message}`
+          : 'Could not load recent stations.',
       );
     } finally {
       if (showLoadingState) {
-        setLoading(false);
+        setRecentLoading(false);
       }
     }
   }, []);
 
-  const handleRefresh = useCallback(() => {
+  const refreshScreen = useCallback(async () => {
     setRefreshing(true);
 
-    void loadDashboard(false).finally(() => {
+    try {
+      await Promise.all([loadSummary(false), loadRecentStations(false)]);
+    } finally {
       setRefreshing(false);
-    });
-  }, [loadDashboard]);
+    }
+  }, [loadRecentStations, loadSummary]);
 
   useFocusEffect(
     useCallback(() => {
-      void loadDashboard();
-    }, [loadDashboard]),
+      void Promise.all([loadSummary(), loadRecentStations()]);
+    }, [loadRecentStations, loadSummary]),
   );
 
   return (
-    <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
-      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+    <AppScreen refreshing={refreshing} onRefresh={() => void refreshScreen()}>
+      <SectionHeader
+        title="Field Dashboard"
+        subtitle="Review the latest station activity and refresh backend-driven field data when needed."
+      />
 
-      <AppCard style={styles.metricsCard}>
-        <Text style={styles.cardTitle}>Station Status Overview</Text>
-        {loading ? (
-          <LoadingState label="Refreshing dashboard..." />
-        ) : (
-          <View style={styles.metricsGrid}>
-            <MetricBox label="Total" value={metrics.total} />
-            <MetricBox label="Active" value={metrics.active} />
-            <MetricBox label="Maintenance" value={metrics.maintenance} />
-            <MetricBox label="Inactive" value={metrics.inactive} />
-            <MetricBox label="Faulty" value={metrics.faulty} />
-            <MetricBox label="Archived" value={metrics.archived} />
+      {isAdmin ? (
+        <AppCard style={styles.summaryCard}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Admin Summary</Text>
+            {!summaryLoading ? (
+              <Text style={styles.cardSubtitle}>Served by backend dashboard endpoints</Text>
+            ) : null}
           </View>
-        )}
-      </AppCard>
+
+          {summaryLoading ? (
+            <LoadingState label="Refreshing admin summary..." />
+          ) : summaryError ? (
+            <ErrorState
+              title="Dashboard summary unavailable"
+              description={summaryError}
+              actionLabel="Retry"
+              onActionPress={() => {
+                void loadSummary();
+              }}
+              compact
+            />
+          ) : summary ? (
+            <View style={styles.metricGrid}>
+              <MetricBox label="Stations" value={summary.totalStations} />
+              <MetricBox label="Active" value={summary.activeStations} />
+              <MetricBox label="Maintenance" value={summary.maintenanceStations} />
+              <MetricBox label="Faulty" value={summary.faultyStations} />
+              <MetricBox label="Open Issues" value={summary.totalOpenIssues} />
+              <MetricBox label="Critical" value={summary.totalCriticalIssues} />
+              <MetricBox label="Recent Tests" value={summary.recentTestCount} />
+              <MetricBox label="Archived" value={summary.archivedStations} />
+            </View>
+          ) : null}
+        </AppCard>
+      ) : (
+        <AppCard>
+          <Text style={styles.cardTitle}>Field Mode</Text>
+          <Text style={styles.cardSubtitle}>
+            This dashboard stays lightweight for field users. Use the recent station list below or go
+            straight to scan/search workflows.
+          </Text>
+        </AppCard>
+      )}
 
       <AppCard>
-        <Text style={styles.cardTitle}>Recently Updated</Text>
-        {loading ? (
-          <LoadingState label="Loading stations..." />
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>Recently Updated Stations</Text>
+          <Text style={styles.cardSubtitle}>Most recent backend changes</Text>
+        </View>
+
+        {recentLoading ? (
+          <LoadingState label="Loading recent stations..." />
+        ) : recentError ? (
+          <ErrorState
+            title="Recent stations unavailable"
+            description={recentError}
+            actionLabel="Retry"
+            onActionPress={() => {
+              void loadRecentStations();
+            }}
+            compact
+          />
         ) : recentStations.length === 0 ? (
           <EmptyState
-            title="No recent updates"
-            description="Stations will appear here after backend data is available."
+            title="No recent station updates"
+            description="Stations will appear here as soon as the backend returns updated records."
             actionLabel="Open Station List"
             onActionPress={() => router.push('/stations')}
           />
@@ -116,9 +202,11 @@ export default function DashboardScreen(): React.JSX.Element {
               <View style={styles.rowLeft}>
                 <Text style={styles.stationName}>{station.name}</Text>
                 <Text style={styles.stationMeta}>
-                  {station.code} • {station.brand} • {station.powerKw} kW
+                  {station.code} • {station.location}
                 </Text>
-                <Text style={styles.stationMeta}>Updated: {formatDateShort(station.updatedAt)}</Text>
+                <Text style={styles.stationMeta}>
+                  {station.brand} {station.model} • {station.powerKw} kW • Updated {formatDateTime(station.updatedAt)}
+                </Text>
               </View>
               <StatusBadge status={station.status} isArchived={station.isArchived} />
             </Pressable>
@@ -139,22 +227,30 @@ const MetricBox = ({ label, value }: { label: string; value: number }): React.JS
 };
 
 const styles = StyleSheet.create({
-  metricsCard: {
+  summaryCard: {
     gap: 12,
+  },
+  cardHeader: {
+    gap: 2,
   },
   cardTitle: {
     fontSize: 15,
     fontWeight: '700',
     color: colors.text,
   },
-  metricsGrid: {
+  cardSubtitle: {
+    fontSize: 12,
+    color: colors.mutedText,
+    lineHeight: 18,
+  },
+  metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
   },
   metricBox: {
     width: '31%',
-    minWidth: 92,
+    minWidth: 96,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 10,
@@ -177,13 +273,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 10,
-    padding: 10,
+    padding: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 10,
-  },
-  pressed: {
-    opacity: 0.82,
   },
   rowLeft: {
     flex: 1,
@@ -198,9 +291,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.mutedText,
   },
-  errorText: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: '600',
+  pressed: {
+    opacity: 0.82,
   },
 });
