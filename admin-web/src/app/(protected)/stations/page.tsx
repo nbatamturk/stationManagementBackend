@@ -11,10 +11,12 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Select } from '@/components/ui/select';
 import { StateCard } from '@/components/ui/state-card';
 import { StationsTable } from '@/features/stations/stations-table';
+import { useDocumentTitle } from '@/lib/use-document-title';
 
 type FilterState = {
   search: string;
   status: string;
+  currentType: string;
   archiveView: 'active' | 'all' | 'archived';
   sortBy: 'updatedAt' | 'name' | 'createdAt' | 'lastTestDate' | 'powerKw';
   sortOrder: 'asc' | 'desc';
@@ -34,6 +36,7 @@ function readFilters(searchParams: URLSearchParams): FilterState {
   return {
     search: searchParams.get('search') ?? '',
     status: searchParams.get('status') ?? '',
+    currentType: searchParams.get('currentType') ?? '',
     archiveView: searchParams.get('isArchived') === 'true'
       ? 'archived'
       : searchParams.get('includeArchived') === 'true'
@@ -47,6 +50,7 @@ function readFilters(searchParams: URLSearchParams): FilterState {
 }
 
 export default function StationsPage() {
+  useDocumentTitle('Stations');
   const { canWrite } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -85,6 +89,10 @@ export default function StationsPage() {
 
     if (nextFilters.status) {
       params.set('status', nextFilters.status);
+    }
+
+    if (nextFilters.currentType) {
+      params.set('currentType', nextFilters.currentType);
     }
 
     if (nextFilters.archiveView === 'all') {
@@ -130,6 +138,7 @@ export default function StationsPage() {
     limit: Number(filters.limit),
     search: filters.search.trim() || undefined,
     status: filters.status || undefined,
+    currentType: filters.currentType || undefined,
     sortBy: filters.sortBy,
     sortOrder: filters.sortOrder,
   };
@@ -191,6 +200,18 @@ export default function StationsPage() {
               <option value='active'>Active only</option>
               <option value='all'>Include archived</option>
               <option value='archived'>Archived only</option>
+            </Select>
+          </div>
+          <div className='field'>
+            <label htmlFor='current-type-filter'>Derived current type</label>
+            <Select
+              id='current-type-filter'
+              value={filters.currentType}
+              onChange={(event) => setFilters((current) => ({ ...current, currentType: event.target.value }))}
+            >
+              <option value=''>All current types</option>
+              <option value='AC'>AC</option>
+              <option value='DC'>DC</option>
             </Select>
           </div>
           <div className='field'>
@@ -327,6 +348,7 @@ export default function StationsPage() {
               const resetState: FilterState = {
                 search: '',
                 status: '',
+                currentType: '',
                 archiveView: 'active',
                 sortBy: 'updatedAt',
                 sortOrder: 'desc',

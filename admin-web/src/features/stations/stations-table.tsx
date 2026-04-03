@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { stationsClient } from '@/lib/api/stations-client';
 import { useAuth } from '@/lib/auth/auth-context';
 import { formatCustomValue, formatDateTime, formatEnumLabel, formatRelativeTime } from '@/lib/format';
-import { CustomField, Station } from '@/types/api';
+import { CustomField } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
@@ -42,7 +42,6 @@ export function StationsTable({
   const { canWrite, isAdmin } = useAuth();
   const qc = useQueryClient();
   const page = Number(query.page ?? 1);
-  const limit = Number(query.limit ?? 20);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['stations-table', query],
@@ -112,12 +111,13 @@ export function StationsTable({
                           <strong>{station.name}</strong>
                           <div className='inline-cluster'>
                             <Badge tone='info'>{station.code}</Badge>
-                            <Badge>{station.currentType}</Badge>
-                            <Badge>{station.socketType}</Badge>
+                            <Badge>{station.connectorSummary.hasDC ? 'DC capable' : 'AC only'}</Badge>
+                            <Badge>{station.connectorSummary.count} connector{station.connectorSummary.count === 1 ? '' : 's'}</Badge>
                           </div>
                         </div>
                         <div className='muted'>
                           <div>Brand: {station.brand} · {station.model}</div>
+                          <div>Types: {station.connectorSummary.types.join(', ') || station.socketType}</div>
                           <div>Serial: {station.serialNumber}</div>
                         </div>
                       </div>
@@ -145,7 +145,7 @@ export function StationsTable({
                     </td>
                     <td>
                       <div>{station.location}</div>
-                      <div className='muted'>{station.powerKw} kW</div>
+                      <div className='muted'>Max {station.connectorSummary.maxPowerKw} kW</div>
                     </td>
                     {visibleFields.map((field) => (
                       <td key={field.id}>{formatCustomValue((station.customFields ?? {})[field.key])}</td>

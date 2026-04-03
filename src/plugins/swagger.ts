@@ -43,6 +43,7 @@ export const swaggerPlugin = fp(async (fastify) => {
         { name: 'Users', description: 'Admin-only user management.' },
         { name: 'Audit Logs', description: 'Admin-only audit log access.' },
         { name: 'Dashboard', description: 'Admin dashboard summary and recent activity.' },
+        { name: 'Mobile App Config', description: 'Admin-managed mobile app minimum supported version policy.' },
       ],
       components: {
         securitySchemes: {

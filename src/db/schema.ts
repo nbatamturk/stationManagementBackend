@@ -16,11 +16,11 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import {
+  connectorTypeValues,
   currentTypeValues,
   customFieldTypeValues,
   issueSeverityValues,
   issueStatusValues,
-  socketTypeValues,
   stationStatusValues,
   stationTestResultValues,
   userRoleValues,
@@ -29,7 +29,7 @@ import {
 export const userRoleEnum = pgEnum('user_role', userRoleValues);
 export const stationStatusEnum = pgEnum('station_status', stationStatusValues);
 export const currentTypeEnum = pgEnum('current_type', currentTypeValues);
-export const socketTypeEnum = pgEnum('socket_type', socketTypeValues);
+export const connectorTypeEnum = pgEnum('connector_type', connectorTypeValues);
 export const customFieldTypeEnum = pgEnum('custom_field_type', customFieldTypeValues);
 export const stationTestResultEnum = pgEnum('station_test_result', stationTestResultValues);
 export const issueSeverityEnum = pgEnum('issue_severity', issueSeverityValues);
@@ -54,6 +54,43 @@ export const users = pgTable(
   }),
 );
 
+export const stationBrands = pgTable(
+  'station_brands',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: varchar('name', { length: 120 }).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    stationBrandsNameUnique: uniqueIndex('station_brands_name_unique').on(table.name),
+    stationBrandsActiveIdx: index('station_brands_is_active_idx').on(table.isActive),
+  }),
+);
+
+export const stationModels = pgTable(
+  'station_models',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    brandId: uuid('brand_id')
+      .notNull()
+      .references(() => stationBrands.id, { onDelete: 'cascade' }),
+    name: varchar('name', { length: 120 }).notNull(),
+    description: text('description'),
+    imageUrl: text('image_url'),
+    logoUrl: text('logo_url'),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    stationModelsBrandNameUnique: uniqueIndex('station_models_brand_name_unique').on(table.brandId, table.name),
+    stationModelsBrandIdx: index('station_models_brand_id_idx').on(table.brandId),
+    stationModelsActiveIdx: index('station_models_is_active_idx').on(table.isActive),
+  }),
+);
+
 export const stations = pgTable(
   'stations',
   {
@@ -61,18 +98,25 @@ export const stations = pgTable(
     name: varchar('name', { length: 160 }).notNull(),
     code: varchar('code', { length: 80 }).notNull(),
     qrCode: varchar('qr_code', { length: 150 }).notNull(),
+    brandId: uuid('brand_id')
+      .notNull()
+      .references(() => stationBrands.id, { onDelete: 'restrict' }),
+    modelId: uuid('model_id')
+      .notNull()
+      .references(() => stationModels.id, { onDelete: 'restrict' }),
     brand: varchar('brand', { length: 120 }).notNull(),
     model: varchar('model', { length: 120 }).notNull(),
     serialNumber: varchar('serial_number', { length: 150 }).notNull(),
     powerKw: numeric('power_kw', { precision: 10, scale: 2 }).notNull(),
     currentType: currentTypeEnum('current_type').notNull(),
-    socketType: socketTypeEnum('socket_type').notNull(),
+    socketType: varchar('socket_type', { length: 250 }).notNull(),
     location: text('location').notNull(),
     status: stationStatusEnum('status').default('active').notNull(),
     lastTestDate: timestamp('last_test_date', { withTimezone: true }),
     notes: text('notes'),
     isArchived: boolean('is_archived').default(false).notNull(),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
+    modelTemplateVersion: integer('model_template_version'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -83,6 +127,8 @@ export const stations = pgTable(
     stationsQrCodeUnique: uniqueIndex('stations_qr_code_unique').on(table.qrCode),
     stationsSerialNumberUnique: uniqueIndex('stations_serial_number_unique').on(table.serialNumber),
     stationsStatusIdx: index('stations_status_idx').on(table.status),
+    stationsBrandIdIdx: index('stations_brand_id_idx').on(table.brandId),
+    stationsModelIdIdx: index('stations_model_id_idx').on(table.modelId),
     stationsBrandIdx: index('stations_brand_idx').on(table.brand),
     stationsCurrentTypeIdx: index('stations_current_type_idx').on(table.currentType),
     stationsArchivedIdx: index('stations_is_archived_idx').on(table.isArchived),
@@ -141,6 +187,65 @@ export const stationCustomFieldValues = pgTable(
   }),
 );
 
+export const stationConnectors = pgTable(
+  'station_connectors',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    stationId: uuid('station_id')
+      .notNull()
+      .references(() => stations.id, { onDelete: 'cascade' }),
+    connectorNo: integer('connector_no').notNull(),
+    connectorType: connectorTypeEnum('connector_type').notNull(),
+    currentType: currentTypeEnum('current_type').notNull(),
+    powerKw: numeric('power_kw', { precision: 10, scale: 2 }).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    isDeleted: boolean('is_deleted').default(false).notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    stationConnectorsStationIdx: index('station_connectors_station_id_idx').on(table.stationId),
+    stationConnectorsLiveSortIdx: index('station_connectors_live_sort_idx').on(
+      table.stationId,
+      table.isDeleted,
+      table.sortOrder,
+      table.connectorNo,
+    ),
+    stationConnectorsLiveNoUnique: uniqueIndex('station_connectors_live_station_connector_no_unique')
+      .on(table.stationId, table.connectorNo)
+      .where(sql`${table.isDeleted} = false`),
+  }),
+);
+
+export const stationModelConnectorTemplates = pgTable(
+  'station_model_connector_templates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    modelId: uuid('model_id')
+      .notNull()
+      .references(() => stationModels.id, { onDelete: 'cascade' }),
+    version: integer('version').default(1).notNull(),
+    connectorNo: integer('connector_no').notNull(),
+    connectorType: connectorTypeEnum('connector_type').notNull(),
+    currentType: currentTypeEnum('current_type').notNull(),
+    powerKw: numeric('power_kw', { precision: 10, scale: 2 }).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    stationModelConnectorTemplateVersionNoUnique: uniqueIndex(
+      'station_model_connector_templates_model_version_connector_no_unique',
+    ).on(table.modelId, table.version, table.connectorNo),
+    stationModelConnectorTemplateModelVersionIdx: index(
+      'station_model_connector_templates_model_version_idx',
+    ).on(table.modelId, table.version, table.sortOrder, table.connectorNo),
+  }),
+);
+
 export const stationTestHistory = pgTable(
   'station_test_history',
   {
@@ -148,6 +253,7 @@ export const stationTestHistory = pgTable(
     stationId: uuid('station_id')
       .notNull()
       .references(() => stations.id, { onDelete: 'cascade' }),
+    connectorId: uuid('connector_id').references(() => stationConnectors.id, { onDelete: 'set null' }),
     testDate: timestamp('test_date', { withTimezone: true }).defaultNow().notNull(),
     result: stationTestResultEnum('result').notNull(),
     notes: text('notes'),
@@ -158,6 +264,7 @@ export const stationTestHistory = pgTable(
   },
   (table) => ({
     stationTestHistoryStationIdx: index('station_test_history_station_id_idx').on(table.stationId),
+    stationTestHistoryConnectorIdx: index('station_test_history_connector_id_idx').on(table.connectorId),
     stationTestHistoryDateIdx: index('station_test_history_test_date_idx').on(table.testDate),
   }),
 );
@@ -169,6 +276,7 @@ export const stationIssueRecords = pgTable(
     stationId: uuid('station_id')
       .notNull()
       .references(() => stations.id, { onDelete: 'cascade' }),
+    connectorId: uuid('connector_id').references(() => stationConnectors.id, { onDelete: 'set null' }),
     title: varchar('title', { length: 160 }).notNull(),
     description: text('description'),
     severity: issueSeverityEnum('severity').default('medium').notNull(),
@@ -181,6 +289,7 @@ export const stationIssueRecords = pgTable(
   },
   (table) => ({
     stationIssueRecordsStationIdx: index('station_issue_records_station_id_idx').on(table.stationId),
+    stationIssueRecordsConnectorIdx: index('station_issue_records_connector_id_idx').on(table.connectorId),
     stationIssueRecordsStatusIdx: index('station_issue_records_status_idx').on(table.status),
     stationIssueRecordsSeverityIdx: index('station_issue_records_severity_idx').on(table.severity),
   }),
@@ -234,10 +343,27 @@ export const auditLogs = pgTable(
   }),
 );
 
+export const mobileAppConfig = pgTable(
+  'mobile_app_config',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    configKey: varchar('config_key', { length: 40 }).default('default').notNull(),
+    iosMinimumSupportedVersion: varchar('ios_minimum_supported_version', { length: 32 }),
+    androidMinimumSupportedVersion: varchar('android_minimum_supported_version', { length: 32 }),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    mobileAppConfigKeyUnique: uniqueIndex('mobile_app_config_key_unique').on(table.configKey),
+  }),
+);
+
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
 export type StationStatus = (typeof stationStatusEnum.enumValues)[number];
 export type CurrentType = (typeof currentTypeEnum.enumValues)[number];
-export type SocketType = (typeof socketTypeEnum.enumValues)[number];
+export type ConnectorType = (typeof connectorTypeEnum.enumValues)[number];
+export type SocketType = ConnectorType;
 export type CustomFieldType = (typeof customFieldTypeEnum.enumValues)[number];
 export type StationTestResult = (typeof stationTestResultEnum.enumValues)[number];
 export type IssueSeverity = (typeof issueSeverityEnum.enumValues)[number];

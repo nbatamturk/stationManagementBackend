@@ -579,6 +579,32 @@ p {
   font-weight: 600;
 }
 
+.connector-editor-list {
+  display: grid;
+  gap: 14px;
+}
+
+.connector-card {
+  display: grid;
+  gap: 14px;
+}
+
+.catalog-media-shell {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+}
+
+.catalog-media {
+  max-width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+}
+
 .pill-link {
   display: inline-flex;
   align-items: center;

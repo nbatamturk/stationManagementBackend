@@ -5,6 +5,7 @@ import {
   createCollectionResponseSchema,
   createEnumSchema,
   createSuccessResponseSchema,
+  deleteResultDataSchema,
   isoDateTimeSchema,
   uuidSchema,
 } from '../../utils/api-schemas';
@@ -83,3 +84,5 @@ export const customFieldIdParamsSchema = Type.Object(
 export const customFieldListResponseSchema = createCollectionResponseSchema(customFieldDefinitionSchema);
 
 export const customFieldResponseSchema = createSuccessResponseSchema(customFieldDefinitionSchema);
+
+export const customFieldDeleteResponseSchema = createSuccessResponseSchema(deleteResultDataSchema);

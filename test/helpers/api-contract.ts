@@ -57,6 +57,24 @@ export type StationSummary = {
   latestTestResult: 'pass' | 'fail' | 'warning' | null;
 };
 
+export type StationConnectorSummary = {
+  types: Array<'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other'>;
+  maxPowerKw: number;
+  hasAC: boolean;
+  hasDC: boolean;
+  count: number;
+};
+
+export type StationConnector = {
+  id: string;
+  connectorNo: number;
+  connectorType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+  currentType: 'AC' | 'DC';
+  powerKw: number;
+  isActive: boolean;
+  sortOrder: number;
+};
+
 export type StationSync = {
   updatedAt: string;
   isArchived: boolean;
@@ -72,16 +90,21 @@ export type StationResponseData = {
   name: string;
   code: string;
   qrCode: string;
+  brandId: string;
+  modelId: string;
   brand: string;
   model: string;
   serialNumber: string;
   powerKw: number;
   currentType: 'AC' | 'DC';
-  socketType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+  socketType: string;
   location: string;
   status: 'active' | 'maintenance' | 'inactive' | 'faulty';
   lastTestDate: string | null;
   notes?: string | null;
+  modelTemplateVersion: number | null;
+  connectorSummary: StationConnectorSummary;
+  connectors?: StationConnector[];
   customFields?: Record<string, unknown>;
   isArchived: boolean;
   archivedAt: string | null;
@@ -202,6 +225,14 @@ export const assertStationSummary = (summary: StationSummary) => {
   assert.equal(typeof summary.attachmentCount, 'number');
   assert.equal(typeof summary.testHistoryCount, 'number');
   assert.ok(summary.latestTestResult === null || ['pass', 'fail', 'warning'].includes(summary.latestTestResult));
+};
+
+export const assertStationConnectorSummary = (summary: StationConnectorSummary) => {
+  assert.equal(Array.isArray(summary.types), true);
+  assert.equal(typeof summary.maxPowerKw, 'number');
+  assert.equal(typeof summary.hasAC, 'boolean');
+  assert.equal(typeof summary.hasDC, 'boolean');
+  assert.equal(typeof summary.count, 'number');
 };
 
 export const assertStationSync = (sync: StationSync, expectConflictFields = false) => {

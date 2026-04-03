@@ -125,4 +125,4 @@ console.log(`Loaded env files: ${loadedFiles.length > 0 ? loadedFiles.join(', ')
 console.log(`Using integration database: ${process.env.TEST_DATABASE_URL}`);
 
 run(npmCommand, ['run', 'db:migrate']);
-run(tsxCommand, ['--test', ...testFiles]);
+run(tsxCommand, ['--test', '--test-concurrency=1', ...testFiles]);

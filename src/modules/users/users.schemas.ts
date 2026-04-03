@@ -5,6 +5,7 @@ import {
   createPaginatedResponseSchema,
   createEnumSchema,
   createSuccessResponseSchema,
+  deleteResultDataSchema,
   isoDateTimeSchema,
   uuidSchema,
 } from '../../utils/api-schemas';
@@ -74,3 +75,5 @@ export const safeUserSchema = Type.Object(
 export const usersListResponseSchema = createPaginatedResponseSchema(safeUserSchema);
 
 export const userResponseSchema = createSuccessResponseSchema(safeUserSchema);
+
+export const userDeleteResponseSchema = createSuccessResponseSchema(deleteResultDataSchema);

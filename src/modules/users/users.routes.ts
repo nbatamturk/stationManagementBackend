@@ -9,6 +9,7 @@ import { strictWriteRouteOptions } from '../../utils/strict-validator';
 import {
   userActivePatchBodySchema,
   userCreateBodySchema,
+  userDeleteResponseSchema,
   userIdParamsSchema,
   userResponseSchema,
   userUpdateBodySchema,
@@ -159,6 +160,29 @@ export const usersRoutes: FastifyPluginAsync = async (fastify) => {
       const body = request.body as { isActive: boolean };
 
       const data = await usersService.setActive(getCurrentUserId(request), params.id, body.isActive);
+      return successResponse(data);
+    },
+  );
+
+  fastify.delete(
+    '/:id',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Users'],
+        summary: 'Delete a user',
+        security: bearerAuthSecurity,
+        params: userIdParamsSchema,
+        response: {
+          200: userDeleteResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const data = await usersService.delete(getCurrentUserId(request), params.id);
       return successResponse(data);
     },
   );

@@ -11,8 +11,13 @@ import {
   attachments,
   auditLogs,
   customFieldDefinitions,
+  mobileAppConfig,
+  stationBrands,
+  stationConnectors,
   stationCustomFieldValues,
   stationIssueRecords,
+  stationModelConnectorTemplates,
+  stationModels,
   stations,
   stationTestHistory,
   users,
@@ -49,8 +54,19 @@ export const fixtureIds = {
     coolingType: 'aaaaaaaa-2222-2222-2222-222222222222',
     commissioningDate: 'aaaaaaaa-3333-3333-3333-333333333333',
   },
+  brands: {
+    abb: '99999999-0000-0000-0000-000000000001',
+    siemens: '99999999-0000-0000-0000-000000000002',
+  },
+  models: {
+    terra54: '99999999-1000-0000-0000-000000000001',
+    sichargeD: '99999999-1000-0000-0000-000000000002',
+  },
   stations: {
     existing: 'bbbbbbbb-0000-0000-0000-000000000001',
+  },
+  connectors: {
+    existingLive: 'cccccccc-0000-0000-0000-000000000001',
   },
 } as const;
 
@@ -109,8 +125,13 @@ export const resetIntegrationDb = async () => {
   await db.delete(stationIssueRecords);
   await db.delete(stationTestHistory);
   await db.delete(stationCustomFieldValues);
+  await db.delete(stationModelConnectorTemplates);
+  await db.delete(stationConnectors);
   await db.delete(customFieldDefinitions);
+  await db.delete(mobileAppConfig);
   await db.delete(stations);
+  await db.delete(stationModels);
+  await db.delete(stationBrands);
   await db.delete(users);
 
   await db.insert(users).values([
@@ -193,11 +214,74 @@ export const resetIntegrationDb = async () => {
     },
   ]);
 
+  await db.insert(stationBrands).values([
+    {
+      id: fixtureIds.brands.abb,
+      name: 'ABB',
+      isActive: true,
+    },
+    {
+      id: fixtureIds.brands.siemens,
+      name: 'Siemens',
+      isActive: true,
+    },
+  ]);
+
+  await db.insert(stationModels).values([
+    {
+      id: fixtureIds.models.terra54,
+      brandId: fixtureIds.brands.abb,
+      name: 'Terra 54',
+      isActive: true,
+    },
+    {
+      id: fixtureIds.models.sichargeD,
+      brandId: fixtureIds.brands.siemens,
+      name: 'Sicharge D',
+      isActive: true,
+    },
+  ]);
+
+  await db.insert(stationModelConnectorTemplates).values([
+    {
+      modelId: fixtureIds.models.terra54,
+      version: 1,
+      connectorNo: 1,
+      connectorType: 'CCS2',
+      currentType: 'DC',
+      powerKw: '50.00',
+      isActive: true,
+      sortOrder: 1,
+    },
+    {
+      modelId: fixtureIds.models.terra54,
+      version: 2,
+      connectorNo: 1,
+      connectorType: 'Type2',
+      currentType: 'AC',
+      powerKw: '22.00',
+      isActive: true,
+      sortOrder: 1,
+    },
+    {
+      modelId: fixtureIds.models.terra54,
+      version: 2,
+      connectorNo: 2,
+      connectorType: 'CCS2',
+      currentType: 'DC',
+      powerKw: '50.00',
+      isActive: true,
+      sortOrder: 2,
+    },
+  ]);
+
   await db.insert(stations).values({
     id: fixtureIds.stations.existing,
     name: 'Existing Integration Station',
     code: 'INT-EX-001',
     qrCode: 'QR-INT-EX-001',
+    brandId: fixtureIds.brands.abb,
+    modelId: fixtureIds.models.terra54,
     brand: 'ABB',
     model: 'Terra 54',
     serialNumber: 'ABB-INT-0001',
@@ -212,6 +296,19 @@ export const resetIntegrationDb = async () => {
     archivedAt: null,
     createdBy: fixtureIds.users.admin,
     updatedBy: fixtureIds.users.operator,
+  });
+
+  await db.insert(stationConnectors).values({
+    id: fixtureIds.connectors.existingLive,
+    stationId: fixtureIds.stations.existing,
+    connectorNo: 1,
+    connectorType: 'CCS2',
+    currentType: 'DC',
+    powerKw: '50.00',
+    isActive: true,
+    sortOrder: 1,
+    isDeleted: false,
+    deletedAt: null,
   });
 
   await db.insert(stationCustomFieldValues).values([
@@ -240,13 +337,20 @@ export const buildStationPayload = (suffix: string) => ({
   brand: 'Siemens',
   model: 'Sicharge D',
   serialNumber: `SIM-INT-${suffix}-001`,
-  powerKw: 160,
-  currentType: 'DC' as const,
-  socketType: 'CCS2' as const,
   location: `Integration Site ${suffix}`,
   status: 'active' as const,
   lastTestDate: '2026-03-20T08:30:00.000Z',
   notes: `Station ${suffix} created by integration test`,
+  connectors: [
+    {
+      connectorNo: 1,
+      connectorType: 'CCS2' as const,
+      currentType: 'DC' as const,
+      powerKw: 160,
+      isActive: true,
+      sortOrder: 1,
+    },
+  ],
   customFields: {
     cooling_type: 'liquid',
     firmware_version: `v${suffix}.0.0`,

@@ -218,6 +218,50 @@ export class UsersService {
     return this.toSafeUser(updated);
   }
 
+  async delete(actorUserId: string, id: string) {
+    const user = await this.repository.findById(id);
+
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    if (actorUserId === id) {
+      throw new AppError('You cannot delete your own account', 400, 'CANNOT_DELETE_SELF');
+    }
+
+    if (user.role === 'admin' && user.isActive) {
+      const remainingActiveAdmins = await this.repository.countActiveAdmins(id);
+
+      if (remainingActiveAdmins === 0) {
+        throw new AppError('At least one active admin user is required', 400, 'LAST_ADMIN_REQUIRED');
+      }
+    }
+
+    const deleted = await this.repository.deleteById(id);
+
+    if (!deleted) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    await writeAuditLog({
+      actorUserId,
+      entityType: 'user',
+      entityId: id,
+      action: 'user.deleted',
+      metadataJson: {
+        targetUserId: id,
+        email: user.email,
+        role: user.role,
+        wasActive: user.isActive,
+      },
+    });
+
+    return {
+      success: true as const,
+      id,
+    };
+  }
+
   private toSafeUser(user: {
     id: string;
     email: string;

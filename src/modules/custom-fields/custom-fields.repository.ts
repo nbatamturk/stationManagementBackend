@@ -47,6 +47,15 @@ export class CustomFieldsRepository {
     return updated;
   }
 
+  async deleteById(id: string, executor: any = db) {
+    const [deleted] = await executor
+      .delete(customFieldDefinitions)
+      .where(eq(customFieldDefinitions.id, id))
+      .returning();
+
+    return deleted;
+  }
+
   async findByKeys(keys: string[], executor: any = db) {
     if (keys.length === 0) {
       return [];

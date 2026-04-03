@@ -18,6 +18,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Select } from '@/components/ui/select';
 import { StateCard } from '@/components/ui/state-card';
 import { Textarea } from '@/components/ui/textarea';
+import { useDocumentTitle } from '@/lib/use-document-title';
 
 function getTone(value: string) {
   if (value === 'resolved' || value === 'closed') {
@@ -82,6 +83,8 @@ export default function IssueDetailPage() {
       router.push(issue.data?.data.stationId ? `/issues?stationId=${issue.data.data.stationId}` : '/issues');
     },
   });
+  const pageTitle = issue.data?.data?.title ?? 'Issue Detail';
+  useDocumentTitle(pageTitle);
 
   if (issue.isLoading) {
     return <StateCard title='Loading issue' description='Fetching issue details and related station context.' />;

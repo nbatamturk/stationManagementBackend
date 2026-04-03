@@ -18,6 +18,7 @@ import { Select } from '@/components/ui/select';
 import { StateCard } from '@/components/ui/state-card';
 import { Textarea } from '@/components/ui/textarea';
 import { StationPicker } from '@/features/stations/station-picker';
+import { useDocumentTitle } from '@/lib/use-document-title';
 
 type Filters = {
   stationId: string;
@@ -137,6 +138,7 @@ export default function TestHistoryOverviewPage() {
   });
 
   const mutationError = (createTest.error as Error | null)?.message || (updateTest.error as Error | null)?.message || '';
+  useDocumentTitle(station.data?.data ? `Test History - ${station.data.data.code}` : 'Test History');
 
   return (
     <div className='page-stack'>

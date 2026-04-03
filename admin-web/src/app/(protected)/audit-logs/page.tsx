@@ -14,6 +14,7 @@ import { TableShell } from '@/components/ui/table-shell';
 import { auditLogsClient } from '@/lib/api/audit-logs-client';
 import { useAuth } from '@/lib/auth/auth-context';
 import { formatDateTime, formatEnumLabel, formatRelativeTime } from '@/lib/format';
+import { useDocumentTitle } from '@/lib/use-document-title';
 
 type Filters = {
   entityType: string;
@@ -57,6 +58,7 @@ function readFilters(searchParams: URLSearchParams): Filters {
 }
 
 export default function AuditLogsPage() {
+  useDocumentTitle('Audit Logs');
   const { isAdmin } = useAuth();
   const router = useRouter();
   const pathname = usePathname();

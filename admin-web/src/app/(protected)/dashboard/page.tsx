@@ -10,6 +10,7 @@ import { DashboardRecentIssue, DashboardRecentStation, DashboardRecentTest } fro
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/ui/page-header';
 import { StateCard } from '@/components/ui/state-card';
+import { useDocumentTitle } from '@/lib/use-document-title';
 
 function StatusTone({ status }: { status: string }) {
   if (status === 'active' || status === 'pass' || status === 'resolved' || status === 'closed') {
@@ -134,6 +135,7 @@ function RecentTestsCard({ items }: { items: DashboardRecentTest[] }) {
 }
 
 export default function DashboardPage() {
+  useDocumentTitle('Dashboard');
   const { isAdmin } = useAuth();
 
   const adminSummary = useQuery({

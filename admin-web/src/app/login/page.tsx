@@ -2,10 +2,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useDocumentTitle } from '@/lib/use-document-title';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 export default function LoginPage() {
+  useDocumentTitle('Sign In');
   const { login } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState('');

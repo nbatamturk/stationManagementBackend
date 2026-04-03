@@ -24,3 +24,5 @@ export const getPgError = (error: unknown): PgErrorLike | null => {
 export const isUniqueViolation = (error: unknown) => getPgError(error)?.code === '23505';
 
 export const isForeignKeyViolation = (error: unknown) => getPgError(error)?.code === '23503';
+
+export const isUndefinedTableError = (error: unknown) => getPgError(error)?.code === '42P01';

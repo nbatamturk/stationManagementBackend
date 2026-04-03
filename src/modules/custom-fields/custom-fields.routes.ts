@@ -8,6 +8,7 @@ import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import {
   customFieldCreateBodySchema,
+  customFieldDeleteResponseSchema,
   customFieldIdParamsSchema,
   customFieldListQuerySchema,
   customFieldListResponseSchema,
@@ -131,6 +132,29 @@ export const customFieldsRoutes: FastifyPluginAsync = async (fastify) => {
       const body = request.body as { isActive: boolean };
 
       const data = await customFieldsService.setActive(getCurrentUserId(request), params.id, body.isActive);
+      return successResponse(data);
+    },
+  );
+
+  fastify.delete(
+    '/:id',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Custom Fields'],
+        summary: 'Delete a custom field definition',
+        security: bearerAuthSecurity,
+        params: customFieldIdParamsSchema,
+        response: {
+          200: customFieldDeleteResponseSchema,
+          ...pickErrorResponseSchemas(401, 403, 404, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const data = await customFieldsService.delete(getCurrentUserId(request), params.id);
       return successResponse(data);
     },
   );

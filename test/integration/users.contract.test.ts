@@ -137,6 +137,44 @@ test('users contract', async (t) => {
     assert.equal(reactivated.isActive, true);
   });
 
+  await t.test('delete user removes the account while preserving self-delete and last-admin guards', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'admin');
+    const createResponse = await app.inject({
+      method: 'POST',
+      url: '/users',
+      headers: bearerHeaders(token),
+      payload: {
+        email: 'delete.integration@evlab.local',
+        fullName: 'Delete Integration User',
+        password: 'Delete123!',
+        role: 'viewer',
+      },
+    });
+    const created = expectSuccess<UserResponseData>(createResponse, 201);
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/users/${created.id}`,
+      headers: bearerHeaders(token),
+    });
+    const deleted = expectSuccess<{ success: true; id: string }>(deleteResponse, 200);
+
+    assert.equal(deleted.success, true);
+    assert.equal(deleted.id, created.id);
+
+    expectError(
+      await app.inject({
+        method: 'DELETE',
+        url: `/users/${fixtureIds.users.admin}`,
+        headers: bearerHeaders(token),
+      }),
+      400,
+      'CANNOT_DELETE_SELF',
+    );
+  });
+
   await t.test('user write endpoints reject unexpected payload properties', async () => {
     await resetIntegrationDb();
 
@@ -337,6 +375,11 @@ test('users contract', async (t) => {
         payload: {
           isActive: false,
         },
+      }),
+      app.inject({
+        method: 'DELETE',
+        url: `/users/${fixtureIds.users.viewer}`,
+        headers: bearerHeaders(operatorToken),
       }),
     ]);
 

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/lib/api/auth-client';
 import { useAuth } from '@/lib/auth/auth-context';
+import { useDocumentTitle } from '@/lib/use-document-title';
 
 type AccountPasswordFormValues = {
   currentPassword: string;
@@ -16,6 +17,7 @@ type AccountPasswordFormValues = {
 };
 
 export default function AccountPage() {
+  useDocumentTitle('Account');
   const { user } = useAuth();
   const [successMessage, setSuccessMessage] = useState('');
   const form = useForm<AccountPasswordFormValues>({

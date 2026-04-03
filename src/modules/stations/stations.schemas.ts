@@ -1,8 +1,8 @@
 import { Type } from '@sinclair/typebox';
 
 import {
+  connectorTypeValues,
   currentTypeValues,
-  socketTypeValues,
   stationDeletionModeValues,
   stationStatusValues,
   stationSyncConflictFieldValues,
@@ -11,6 +11,7 @@ import {
 } from '../../contracts/domain';
 import {
   createEnumSchema,
+  createCollectionResponseSchema,
   createPaginatedResponseSchema,
   createSuccessResponseSchema,
   deleteResultDataSchema,
@@ -24,7 +25,7 @@ const stationStatusSchema = createEnumSchema(stationStatusValues, {
 
 const currentTypeSchema = createEnumSchema(currentTypeValues);
 
-const socketTypeSchema = createEnumSchema(socketTypeValues);
+const connectorTypeSchema = createEnumSchema(connectorTypeValues);
 
 const stationViewSchema = createEnumSchema(stationViewValues);
 
@@ -59,22 +60,101 @@ const stationMobileSummarySchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const stationConnectorSummarySchema = Type.Object(
+  {
+    types: Type.Array(connectorTypeSchema),
+    maxPowerKw: Type.Number({ minimum: 0 }),
+    hasAC: Type.Boolean(),
+    hasDC: Type.Boolean(),
+    count: Type.Integer({ minimum: 0 }),
+  },
+  { additionalProperties: false },
+);
+
+export const stationConnectorSchema = Type.Object(
+  {
+    id: uuidSchema,
+    connectorNo: Type.Integer({ minimum: 1 }),
+    connectorType: connectorTypeSchema,
+    currentType: currentTypeSchema,
+    powerKw: Type.Number({ exclusiveMinimum: 0, maximum: 1000 }),
+    isActive: Type.Boolean(),
+    sortOrder: Type.Integer({ minimum: 1 }),
+  },
+  { additionalProperties: false },
+);
+
+export const stationConnectorInputSchema = Type.Object(
+  {
+    connectorNo: Type.Integer({ minimum: 1 }),
+    connectorType: connectorTypeSchema,
+    currentType: currentTypeSchema,
+    powerKw: Type.Number({ exclusiveMinimum: 0, maximum: 1000 }),
+    isActive: Type.Optional(Type.Boolean()),
+    sortOrder: Type.Optional(Type.Integer({ minimum: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+export const stationCatalogBrandSchema = Type.Object(
+  {
+    id: uuidSchema,
+    name: Type.String({ minLength: 1, maxLength: 120 }),
+    isActive: Type.Boolean(),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+  },
+  { additionalProperties: false },
+);
+
+export const stationCatalogModelSchema = Type.Object(
+  {
+    id: uuidSchema,
+    brandId: uuidSchema,
+    name: Type.String({ minLength: 1, maxLength: 120 }),
+    description: Type.Union([Type.String({ maxLength: 4000 }), Type.Null()]),
+    imageUrl: Type.Union([Type.String({ maxLength: 2000 }), Type.Null()]),
+    logoUrl: Type.Union([Type.String({ maxLength: 2000 }), Type.Null()]),
+    isActive: Type.Boolean(),
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+    latestTemplateVersion: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+    latestTemplateConnectors: Type.Array(stationConnectorInputSchema),
+  },
+  { additionalProperties: false },
+);
+
+export const stationConfigDataSchema = Type.Object(
+  {
+    statuses: Type.Array(stationStatusSchema),
+    currentTypes: Type.Array(currentTypeSchema),
+    connectorTypes: Type.Array(connectorTypeSchema),
+    brands: Type.Array(stationCatalogBrandSchema),
+    models: Type.Array(stationCatalogModelSchema),
+  },
+  { additionalProperties: false },
+);
+
 const stationCommonProperties = {
   id: uuidSchema,
   name: Type.String(),
   code: Type.String(),
   qrCode: Type.String(),
+  brandId: uuidSchema,
+  modelId: uuidSchema,
   brand: Type.String(),
   model: Type.String(),
   powerKw: Type.Number(),
   currentType: currentTypeSchema,
-  socketType: socketTypeSchema,
+  socketType: Type.String(),
   location: Type.String(),
   status: stationStatusSchema,
   lastTestDate: Type.Union([isoDateTimeSchema, Type.Null()]),
   isArchived: Type.Boolean(),
   archivedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
   updatedAt: isoDateTimeSchema,
+  modelTemplateVersion: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+  connectorSummary: stationConnectorSummarySchema,
 } as const;
 
 const stationBaseListProperties = {
@@ -140,16 +220,16 @@ export const stationCreateBodySchema = Type.Object(
     name: Type.String({ minLength: 2, maxLength: 160 }),
     code: Type.String({ minLength: 2, maxLength: 80 }),
     qrCode: Type.String({ minLength: 2, maxLength: 150 }),
-    brand: Type.String({ minLength: 1, maxLength: 120 }),
-    model: Type.String({ minLength: 1, maxLength: 120 }),
+    brandId: Type.Optional(uuidSchema),
+    modelId: Type.Optional(uuidSchema),
+    brand: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    model: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     serialNumber: Type.String({ minLength: 2, maxLength: 150 }),
-    powerKw: Type.Number({ minimum: 0, maximum: 1000 }),
-    currentType: currentTypeSchema,
-    socketType: socketTypeSchema,
     location: Type.String({ minLength: 2, maxLength: 500 }),
     status: Type.Optional(stationStatusSchema),
     lastTestDate: Type.Optional(Type.Union([isoDateTimeSchema, Type.Null()])),
     notes: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+    connectors: Type.Optional(Type.Array(stationConnectorInputSchema, { minItems: 1, maxItems: 20 })),
     customFields: Type.Optional(Type.Record(Type.String(), Type.Any())),
   },
   { additionalProperties: false },
@@ -160,16 +240,16 @@ export const stationUpdateBodySchema = Type.Object(
     name: Type.Optional(Type.String({ minLength: 2, maxLength: 160 })),
     code: Type.Optional(Type.String({ minLength: 2, maxLength: 80 })),
     qrCode: Type.Optional(Type.String({ minLength: 2, maxLength: 150 })),
+    brandId: Type.Optional(uuidSchema),
+    modelId: Type.Optional(uuidSchema),
     brand: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     model: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     serialNumber: Type.Optional(Type.String({ minLength: 2, maxLength: 150 })),
-    powerKw: Type.Optional(Type.Number({ minimum: 0, maximum: 1000 })),
-    currentType: Type.Optional(currentTypeSchema),
-    socketType: Type.Optional(socketTypeSchema),
     location: Type.Optional(Type.String({ minLength: 2, maxLength: 500 })),
     status: Type.Optional(stationStatusSchema),
     lastTestDate: Type.Optional(Type.Union([isoDateTimeSchema, Type.Null()])),
     notes: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+    connectors: Type.Optional(Type.Array(stationConnectorInputSchema, { minItems: 1, maxItems: 20 })),
     customFields: Type.Optional(Type.Record(Type.String(), Type.Any())),
   },
   {
@@ -190,6 +270,7 @@ export const stationResponseDataSchema = Type.Object(
     ...stationSummaryProperties,
     notes: Type.Union([Type.String(), Type.Null()]),
     createdAt: isoDateTimeSchema,
+    connectors: Type.Array(stationConnectorSchema),
     customFields: Type.Record(Type.String(), Type.Any()),
   },
   { additionalProperties: false },
@@ -224,3 +305,71 @@ export const stationResponseSchema = createSuccessResponseSchema(stationResponse
 export const stationSummaryResponseSchema = createSuccessResponseSchema(stationSummaryDataSchema);
 
 export const stationDeleteResponseSchema = createSuccessResponseSchema(deleteResultDataSchema);
+
+export const stationConfigResponseSchema = createSuccessResponseSchema(stationConfigDataSchema);
+
+export const stationCatalogDeleteResponseSchema = createSuccessResponseSchema(deleteResultDataSchema);
+
+export const stationCatalogBrandResponseSchema = createSuccessResponseSchema(stationCatalogBrandSchema);
+
+export const stationCatalogBrandCollectionResponseSchema = createCollectionResponseSchema(stationCatalogBrandSchema);
+
+export const stationCatalogModelResponseSchema = createSuccessResponseSchema(stationCatalogModelSchema);
+
+export const stationCatalogModelCollectionResponseSchema = createCollectionResponseSchema(stationCatalogModelSchema);
+
+export const stationCatalogBrandCreateBodySchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 120 }),
+    isActive: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+export const stationCatalogBrandUpdateBodySchema = Type.Object(
+  {
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    isActive: Type.Optional(Type.Boolean()),
+  },
+  {
+    additionalProperties: false,
+    minProperties: 1,
+  },
+);
+
+const catalogUrlSchema = Type.Union([Type.String({ minLength: 1, maxLength: 2000 }), Type.Null()]);
+const catalogDescriptionSchema = Type.Union([Type.String({ maxLength: 4000 }), Type.Null()]);
+
+export const stationCatalogModelCreateBodySchema = Type.Object(
+  {
+    brandId: uuidSchema,
+    name: Type.String({ minLength: 1, maxLength: 120 }),
+    description: Type.Optional(catalogDescriptionSchema),
+    imageUrl: Type.Optional(catalogUrlSchema),
+    logoUrl: Type.Optional(catalogUrlSchema),
+    isActive: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+export const stationCatalogModelUpdateBodySchema = Type.Object(
+  {
+    brandId: Type.Optional(uuidSchema),
+    name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
+    description: Type.Optional(catalogDescriptionSchema),
+    imageUrl: Type.Optional(catalogUrlSchema),
+    logoUrl: Type.Optional(catalogUrlSchema),
+    isActive: Type.Optional(Type.Boolean()),
+  },
+  {
+    additionalProperties: false,
+    minProperties: 1,
+  },
+);
+
+export const stationCatalogModelTemplateUpdateBodySchema = Type.Object(
+  {
+    connectors: Type.Array(stationConnectorInputSchema, { minItems: 1, maxItems: 20 }),
+  },
+  { additionalProperties: false },
+);

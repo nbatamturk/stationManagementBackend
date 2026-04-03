@@ -7,6 +7,15 @@ import { assertCanWrite, requireRoles } from '../../utils/rbac';
 import { strictWriteRouteOptions } from '../../utils/strict-validator';
 
 import {
+  stationCatalogBrandCreateBodySchema,
+  stationCatalogDeleteResponseSchema,
+  stationCatalogBrandResponseSchema,
+  stationCatalogBrandUpdateBodySchema,
+  stationCatalogModelCreateBodySchema,
+  stationCatalogModelResponseSchema,
+  stationCatalogModelTemplateUpdateBodySchema,
+  stationCatalogModelUpdateBodySchema,
+  stationConfigResponseSchema,
   stationCreateBodySchema,
   stationDeleteResponseSchema,
   stationIdParamsSchema,
@@ -20,6 +29,28 @@ import {
 import { stationsService } from './stations.service';
 
 export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get(
+    '/config',
+    {
+      preHandler: [fastify.authenticate],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Get station catalog and form configuration',
+        description:
+          'Returns the catalog-backed station configuration used by admin-web forms, including brands, models, and the latest connector template snapshot for each model.',
+        security: bearerAuthSecurity,
+        response: {
+          200: stationConfigResponseSchema,
+          ...pickErrorResponseSchemas(401, 500),
+        },
+      },
+    },
+    async () => {
+      const data = await stationsService.getConfig();
+      return successResponse(data);
+    },
+  );
+
   fastify.get(
     '/',
     {
@@ -117,6 +148,207 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   fastify.post(
+    '/brands',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Create a station brand',
+        security: bearerAuthSecurity,
+        body: stationCatalogBrandCreateBodySchema,
+        response: {
+          201: stationCatalogBrandResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 409, 500),
+        },
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as {
+        name: string;
+        isActive?: boolean;
+      };
+
+      const data = await stationsService.createBrand(getCurrentUserId(request), body);
+      return reply.status(201).send(successResponse(data));
+    },
+  );
+
+  fastify.put(
+    '/brands/:id',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Update a station brand',
+        security: bearerAuthSecurity,
+        params: stationIdParamsSchema,
+        body: stationCatalogBrandUpdateBodySchema,
+        response: {
+          200: stationCatalogBrandResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 409, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const body = request.body as {
+        name?: string;
+        isActive?: boolean;
+      };
+
+      const data = await stationsService.updateBrand(getCurrentUserId(request), params.id, body);
+      return successResponse(data);
+    },
+  );
+
+  fastify.delete(
+    '/brands/:id',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Delete a station brand',
+        security: bearerAuthSecurity,
+        params: stationIdParamsSchema,
+        response: {
+          200: stationCatalogDeleteResponseSchema,
+          ...pickErrorResponseSchemas(401, 403, 404, 409, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const data = await stationsService.deleteBrand(getCurrentUserId(request), params.id);
+      return successResponse(data);
+    },
+  );
+
+  fastify.post(
+    '/models',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Create a station model',
+        security: bearerAuthSecurity,
+        body: stationCatalogModelCreateBodySchema,
+        response: {
+          201: stationCatalogModelResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 409, 500),
+        },
+      },
+    },
+    async (request, reply) => {
+      const body = request.body as {
+        brandId: string;
+        name: string;
+        description?: string | null;
+        imageUrl?: string | null;
+        logoUrl?: string | null;
+        isActive?: boolean;
+      };
+
+      const data = await stationsService.createModel(getCurrentUserId(request), body);
+      return reply.status(201).send(successResponse(data));
+    },
+  );
+
+  fastify.put(
+    '/models/:id',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Update a station model',
+        security: bearerAuthSecurity,
+        params: stationIdParamsSchema,
+        body: stationCatalogModelUpdateBodySchema,
+        response: {
+          200: stationCatalogModelResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 409, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const body = request.body as {
+        brandId?: string;
+        name?: string;
+        description?: string | null;
+        imageUrl?: string | null;
+        logoUrl?: string | null;
+        isActive?: boolean;
+      };
+
+      const data = await stationsService.updateModel(getCurrentUserId(request), params.id, body);
+      return successResponse(data);
+    },
+  );
+
+  fastify.delete(
+    '/models/:id',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Delete a station model',
+        security: bearerAuthSecurity,
+        params: stationIdParamsSchema,
+        response: {
+          200: stationCatalogDeleteResponseSchema,
+          ...pickErrorResponseSchemas(401, 403, 404, 409, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const data = await stationsService.deleteModel(getCurrentUserId(request), params.id);
+      return successResponse(data);
+    },
+  );
+
+  fastify.put(
+    '/models/:id/template',
+    {
+      ...strictWriteRouteOptions,
+      preHandler: [fastify.authenticate, requireRoles(['admin'])],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Replace the latest station model connector template',
+        security: bearerAuthSecurity,
+        params: stationIdParamsSchema,
+        body: stationCatalogModelTemplateUpdateBodySchema,
+        response: {
+          200: stationCatalogModelResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 409, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const body = request.body as {
+        connectors: Array<{
+          connectorNo: number;
+          connectorType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+          currentType: 'AC' | 'DC';
+          powerKw: number;
+          isActive?: boolean;
+          sortOrder?: number;
+        }>;
+      };
+
+      const data = await stationsService.replaceModelTemplate(getCurrentUserId(request), params.id, body);
+      return successResponse(data);
+    },
+  );
+
+  fastify.post(
     '/',
     {
       ...strictWriteRouteOptions,
@@ -137,16 +369,23 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         name: string;
         code: string;
         qrCode: string;
-        brand: string;
-        model: string;
+        brandId?: string;
+        modelId?: string;
+        brand?: string;
+        model?: string;
         serialNumber: string;
-        powerKw: number;
-        currentType: 'AC' | 'DC';
-        socketType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
         location: string;
         status?: 'active' | 'maintenance' | 'inactive' | 'faulty';
         lastTestDate?: string | null;
         notes?: string | null;
+        connectors?: Array<{
+          connectorNo: number;
+          connectorType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+          currentType: 'AC' | 'DC';
+          powerKw: number;
+          isActive?: boolean;
+          sortOrder?: number;
+        }>;
         customFields?: Record<string, unknown>;
       };
 
@@ -178,20 +417,49 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         name?: string;
         code?: string;
         qrCode?: string;
+        brandId?: string;
+        modelId?: string;
         brand?: string;
         model?: string;
         serialNumber?: string;
-        powerKw?: number;
-        currentType?: 'AC' | 'DC';
-        socketType?: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
         location?: string;
         status?: 'active' | 'maintenance' | 'inactive' | 'faulty';
         lastTestDate?: string | null;
         notes?: string | null;
+        connectors?: Array<{
+          connectorNo: number;
+          connectorType: 'Type2' | 'CCS2' | 'CHAdeMO' | 'GBT' | 'NACS' | 'Other';
+          currentType: 'AC' | 'DC';
+          powerKw: number;
+          isActive?: boolean;
+          sortOrder?: number;
+        }>;
         customFields?: Record<string, unknown>;
       };
 
       const data = await stationsService.update(getCurrentUserId(request), params.id, body);
+      return successResponse(data);
+    },
+  );
+
+  fastify.post(
+    '/:id/apply-model-template',
+    {
+      preHandler: [fastify.authenticate, assertCanWrite],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Apply the latest model connector template to a station',
+        security: bearerAuthSecurity,
+        params: stationIdParamsSchema,
+        response: {
+          200: stationResponseSchema,
+          ...pickErrorResponseSchemas(400, 401, 403, 404, 500),
+        },
+      },
+    },
+    async (request) => {
+      const params = request.params as { id: string };
+      const data = await stationsService.applyModelTemplate(getCurrentUserId(request), params.id);
       return successResponse(data);
     },
   );

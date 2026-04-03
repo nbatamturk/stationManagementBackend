@@ -9,7 +9,7 @@ import { issuesClient } from '@/lib/api/issues-client';
 import { stationsClient } from '@/lib/api/stations-client';
 import { useAuth } from '@/lib/auth/auth-context';
 import { formatDateTime, formatEnumLabel } from '@/lib/format';
-import { IssueSeverity, IssueStatus } from '@/types/api';
+import { IssueSeverity } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/ui/page-header';
@@ -18,6 +18,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { StationPicker } from '@/features/stations/station-picker';
+import { useDocumentTitle } from '@/lib/use-document-title';
 
 type Filters = {
   stationId: string;
@@ -111,6 +112,7 @@ export default function IssuesOverviewPage() {
 
   const openCount = filteredIssues.filter((issue) => issue.status === 'open' || issue.status === 'in_progress').length;
   const criticalCount = filteredIssues.filter((issue) => issue.severity === 'critical').length;
+  useDocumentTitle(station.data?.data ? `Issues - ${station.data.data.code}` : 'Issues');
 
   return (
     <div className='page-stack'>

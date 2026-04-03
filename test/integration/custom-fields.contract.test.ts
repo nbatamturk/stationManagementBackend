@@ -38,7 +38,7 @@ test('custom fields contract', async (t) => {
     assert.equal(typeof data[1]?.options, 'object');
   });
 
-  await t.test('create, update, and set-active keep the current route contract', async () => {
+  await t.test('create, update, set-active, and delete keep the current route contract', async () => {
     await resetIntegrationDb();
 
     const { token } = await loginAndGetToken(app, 'admin');
@@ -100,6 +100,25 @@ test('custom fields contract', async (t) => {
     const inactive = expectSuccess<CustomFieldResponseData>(activeResponse, 200);
 
     assert.equal(inactive.isActive, false);
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/custom-fields/${created.id}`,
+      headers: bearerHeaders(token),
+    });
+    const deleted = expectSuccess<{ success: true; id: string }>(deleteResponse, 200);
+
+    assert.equal(deleted.success, true);
+    assert.equal(deleted.id, created.id);
+
+    const listResponse = await app.inject({
+      method: 'GET',
+      url: '/custom-fields',
+      headers: bearerHeaders(token),
+    });
+    const list = expectSuccess<CustomFieldResponseData[]>(listResponse, 200);
+
+    assert.equal(list.some((field) => field.id === created.id), false);
   });
 
   await t.test('select-definition validation uses the normalized custom-field options error code', async () => {
@@ -268,6 +287,11 @@ test('custom fields contract', async (t) => {
         payload: {
           isActive: false,
         },
+      }),
+      app.inject({
+        method: 'DELETE',
+        url: `/custom-fields/${fixtureIds.customFields.firmwareVersion}`,
+        headers: bearerHeaders(operatorToken),
       }),
     ]);
 

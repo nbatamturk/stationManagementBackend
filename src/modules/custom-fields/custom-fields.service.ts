@@ -1,3 +1,4 @@
+import { db } from '../../db/client';
 import { AppError } from '../../utils/errors';
 import { isUniqueViolation } from '../../utils/db-errors';
 import { writeAuditLog } from '../../utils/audit-log';
@@ -190,6 +191,43 @@ export class CustomFieldsService {
     });
 
     return this.toDefinitionResponse(updated);
+  }
+
+  async delete(userId: string, id: string) {
+    const existing = await this.repository.findById(id);
+
+    if (!existing) {
+      throw new AppError('Custom field not found', 404, 'CUSTOM_FIELD_NOT_FOUND');
+    }
+
+    const existingValueCount = await this.repository.countStationValuesByDefinitionId(id);
+
+    await db.transaction(async (tx) => {
+      const deleted = await this.repository.deleteById(id, tx);
+
+      if (!deleted) {
+        throw new AppError('Custom field not found', 404, 'CUSTOM_FIELD_NOT_FOUND');
+      }
+
+      await writeAuditLog(
+        {
+          actorUserId: userId,
+          entityType: 'custom_field_definition',
+          entityId: id,
+          action: 'custom_field.deleted',
+          metadataJson: {
+            key: existing.key,
+            removedStationValueCount: existingValueCount,
+          },
+        },
+        tx,
+      );
+    });
+
+    return {
+      success: true as const,
+      id,
+    };
   }
 
   async getStationIdsByCustomFilters(filters: Record<string, string>) {

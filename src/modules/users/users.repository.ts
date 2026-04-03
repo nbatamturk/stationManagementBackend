@@ -90,6 +90,11 @@ export class UsersRepository {
     return updated;
   }
 
+  async deleteById(id: string) {
+    const [deleted] = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+    return deleted;
+  }
+
   async countActiveAdmins(excludedUserId?: string) {
     const conditions: SQL[] = [eq(users.role, 'admin'), eq(users.isActive, true)];
 

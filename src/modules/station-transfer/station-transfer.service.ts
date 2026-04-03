@@ -10,6 +10,9 @@ import { isUniqueViolation } from '../../utils/db-errors';
 import { AppError } from '../../utils/errors';
 
 import { customFieldsService } from '../custom-fields/custom-fields.service';
+import { stationCatalogRepository } from '../stations/station-catalog.repository';
+import { buildDerivedStationConnectorFields, normalizeStationConnectors } from '../stations/station-connectors';
+import { stationConnectorsRepository } from '../stations/station-connectors.repository';
 import { stationsRepository } from '../stations/stations.repository';
 import { stationsService } from '../stations/stations.service';
 import {
@@ -100,6 +103,7 @@ const MAX_STATION_LOCATION_LENGTH = 500;
 const MAX_STATION_NOTES_LENGTH = 2000;
 const MAX_CUSTOM_FIELD_TEXT_LENGTH = 2000;
 const MAX_CUSTOM_FIELD_SELECT_LENGTH = 200;
+const MIN_CONNECTOR_POWER_KW = 0;
 
 const hasErrorIssues = (issues: StationImportIssue[]) => issues.some((issue) => issue.severity === 'error');
 
@@ -285,17 +289,21 @@ export class StationTransferService {
               .from(stations)
               .where(eq(stations.code, row.candidate.station.code));
             const matchedStation = matchedRows[0] ?? null;
+            const catalog = await this.resolveCatalogModel(row.candidate.station.brand, row.candidate.station.model, tx);
+            const connectors = this.buildImportConnectors(row.candidate.station);
+            const derived = buildDerivedStationConnectorFields(connectors);
 
             if (!matchedStation) {
               const [created] = await tx
                 .insert(stations)
-                .values(this.buildInsertValues(userId, row.candidate.station))
+                .values(this.buildInsertValues(userId, row.candidate.station, catalog, derived))
                 .returning({ id: stations.id });
 
               if (!created) {
                 throw new Error('Failed to create station from import');
               }
 
+              await stationConnectorsRepository.insertForStation(created.id, connectors, tx);
               await customFieldsService.upsertStationCustomFieldValues(created.id, row.candidate.customFields ?? {}, tx, {
                 enforceRequiredDefinitions: true,
               });
@@ -321,13 +329,16 @@ export class StationTransferService {
 
             const [updated] = await tx
               .update(stations)
-              .set(this.buildUpdateValues(userId, row.candidate.station, matchedStation))
+              .set(this.buildUpdateValues(userId, row.candidate.station, matchedStation, catalog, derived))
               .where(eq(stations.id, matchedStation.id))
               .returning({ id: stations.id });
 
             if (!updated) {
               throw new AppError('Station not found during import apply', 404, 'STATION_NOT_FOUND');
             }
+
+            await stationConnectorsRepository.softDeleteActiveByStationId(updated.id, tx);
+            await stationConnectorsRepository.insertForStation(updated.id, connectors, tx);
 
             if (row.candidate.customFields) {
               await customFieldsService.upsertStationCustomFieldValues(updated.id, row.candidate.customFields, tx);
@@ -482,7 +493,7 @@ export class StationTransferService {
 
     const powerKw = this.normalizeNumberValue(row.values.powerKw ?? '', 'powerKw', issues, {
       maximum: MAX_STATION_POWER_KW,
-      minimum: 0,
+      exclusiveMinimum: MIN_CONNECTOR_POWER_KW,
       required: true,
     });
 
@@ -595,7 +606,7 @@ export class StationTransferService {
 
     const powerKw = this.normalizeNumberLiteral(row.station.powerKw, 'powerKw', issues, {
       maximum: MAX_STATION_POWER_KW,
-      minimum: 0,
+      exclusiveMinimum: MIN_CONNECTOR_POWER_KW,
     });
 
     if (powerKw !== undefined) {
@@ -1143,6 +1154,7 @@ export class StationTransferService {
       required?: boolean;
       maximum?: number;
       minimum?: number;
+      exclusiveMinimum?: number;
     },
   ) {
     const value = rawValue.trim();
@@ -1184,6 +1196,17 @@ export class StationTransferService {
       return undefined;
     }
 
+    if (options.exclusiveMinimum !== undefined && parsed <= options.exclusiveMinimum) {
+      issues.push({
+        severity: 'error',
+        code: 'INVALID_NUMBER_RANGE',
+        message: `${field} must be greater than ${options.exclusiveMinimum}`,
+        field,
+        value,
+      });
+      return undefined;
+    }
+
     if (options.maximum !== undefined && parsed > options.maximum) {
       issues.push({
         severity: 'error',
@@ -1205,6 +1228,7 @@ export class StationTransferService {
     options: {
       maximum?: number;
       minimum?: number;
+      exclusiveMinimum?: number;
     },
   ) {
     if (!Number.isFinite(value)) {
@@ -1223,6 +1247,17 @@ export class StationTransferService {
         severity: 'error',
         code: 'INVALID_NUMBER_RANGE',
         message: `${field} must be greater than or equal to ${options.minimum}`,
+        field,
+        value: String(value),
+      });
+      return undefined;
+    }
+
+    if (options.exclusiveMinimum !== undefined && value <= options.exclusiveMinimum) {
+      issues.push({
+        severity: 'error',
+        code: 'INVALID_NUMBER_RANGE',
+        message: `${field} must be greater than ${options.exclusiveMinimum}`,
         field,
         value: String(value),
       });
@@ -1779,49 +1814,108 @@ export class StationTransferService {
     return `stations-export-${timestamp}.csv`;
   }
 
-  private buildInsertValues(userId: string, station: StationImportStationInput) {
+  private async resolveCatalogModel(brandName: string, modelName: string, executor: any = db) {
+    const existingBrand = await stationCatalogRepository.findBrandByName(brandName, executor);
+    const brand =
+      existingBrand ??
+      (await stationCatalogRepository.createBrand(
+        {
+          name: brandName,
+          isActive: true,
+        },
+        executor,
+      ));
+    const existingModel = await stationCatalogRepository.findModelByBrandAndName(brand.id, modelName, executor);
+    const model =
+      existingModel ??
+      (await stationCatalogRepository.createModel(
+        {
+          brandId: brand.id,
+          name: modelName,
+          isActive: true,
+        },
+        executor,
+      ));
+
+    return {
+      brandId: brand.id,
+      modelId: model.id,
+    };
+  }
+
+  private buildImportConnectors(station: StationImportStationInput) {
+    return normalizeStationConnectors([
+      {
+        connectorNo: 1,
+        connectorType: station.socketType,
+        currentType: station.currentType,
+        powerKw: station.powerKw,
+        isActive: true,
+        sortOrder: 1,
+      },
+    ]);
+  }
+
+  private buildInsertValues(
+    userId: string,
+    station: StationImportStationInput,
+    catalog: { brandId: string; modelId: string },
+    derived: ReturnType<typeof buildDerivedStationConnectorFields>,
+  ) {
     const lifecycle = this.resolveLifecycle(station);
 
     return {
       name: station.name,
       code: station.code,
       qrCode: station.qrCode,
+      brandId: catalog.brandId,
+      modelId: catalog.modelId,
       brand: station.brand,
       model: station.model,
       serialNumber: station.serialNumber,
-      powerKw: station.powerKw.toString(),
-      currentType: station.currentType,
-      socketType: station.socketType,
+      powerKw: derived.powerKw.toString(),
+      currentType: derived.currentType,
+      socketType: derived.socketType,
       location: station.location,
       status: lifecycle.status,
       isArchived: lifecycle.isArchived,
       archivedAt: lifecycle.isArchived ? new Date() : undefined,
       lastTestDate: station.lastTestDate ? new Date(station.lastTestDate) : undefined,
       notes: station.notes,
+      modelTemplateVersion: null,
       createdBy: userId,
       updatedBy: userId,
     };
   }
 
-  private buildUpdateValues(userId: string, station: StationImportStationInput, existingStation: ExistingStation) {
+  private buildUpdateValues(
+    userId: string,
+    station: StationImportStationInput,
+    existingStation: ExistingStation,
+    catalog: { brandId: string; modelId: string },
+    derived: ReturnType<typeof buildDerivedStationConnectorFields>,
+  ) {
     const lifecycle = this.resolveLifecycle(station, existingStation);
 
     return {
       name: station.name,
       code: station.code,
       qrCode: station.qrCode,
+      brandId: catalog.brandId,
+      modelId: catalog.modelId,
       brand: station.brand,
       model: station.model,
       serialNumber: station.serialNumber,
-      powerKw: station.powerKw.toString(),
-      currentType: station.currentType,
-      socketType: station.socketType,
+      powerKw: derived.powerKw.toString(),
+      currentType: derived.currentType,
+      socketType: derived.socketType,
       location: station.location,
       status: lifecycle.status,
       isArchived: lifecycle.isArchived,
       archivedAt: lifecycle.isArchived ? existingStation.archivedAt ?? new Date() : null,
       lastTestDate: station.lastTestDate ? new Date(station.lastTestDate) : undefined,
       notes: station.notes,
+      modelTemplateVersion: null,
       updatedBy: userId,
       updatedAt: new Date(),
     };

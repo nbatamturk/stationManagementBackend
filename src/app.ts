@@ -11,6 +11,7 @@ import { auditLogsRoutes } from './modules/audit-logs/audit-logs.routes';
 import { customFieldsRoutes } from './modules/custom-fields/custom-fields.routes';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes';
 import { issuesRoutes } from './modules/issues/issues.routes';
+import { mobileAppConfigRoutes } from './modules/mobile-app-config/mobile-app-config.routes';
 import { stationsRoutes } from './modules/stations/stations.routes';
 import { stationTransferRoutes } from './modules/station-transfer/station-transfer.routes';
 import { testHistoryRoutes } from './modules/test-history/test-history.routes';
@@ -96,6 +97,7 @@ export const buildApp = () => {
   app.register(usersRoutes, { prefix: '/users' });
   app.register(auditLogsRoutes);
   app.register(dashboardRoutes);
+  app.register(mobileAppConfigRoutes, { prefix: '/mobile-app-config' });
 
   app.addHook('onClose', async () => {
     await pool.end();

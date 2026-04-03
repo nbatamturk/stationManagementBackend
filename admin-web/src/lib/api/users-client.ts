@@ -1,4 +1,4 @@
-import { PaginatedResponse, SuccessResponse, User } from '@/types/api';
+import { DeleteResult, PaginatedResponse, SuccessResponse, User } from '@/types/api';
 import { apiFetch } from './http';
 
 export const usersClient = {
@@ -7,4 +7,5 @@ export const usersClient = {
   create: (payload: { email: string; fullName: string; password: string; role: string; isActive: boolean }) => apiFetch<SuccessResponse<User>>('/users', { method: 'POST', body: JSON.stringify(payload) }),
   update: (id: string, payload: Partial<User> & { password?: string }) => apiFetch<SuccessResponse<User>>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   setActive: (id: string, isActive: boolean) => apiFetch<SuccessResponse<User>>(`/users/${id}/active`, { method: 'PATCH', body: JSON.stringify({ isActive }) }),
+  remove: (id: string) => apiFetch<SuccessResponse<DeleteResult>>(`/users/${id}`, { method: 'DELETE' }),
 };

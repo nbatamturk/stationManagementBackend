@@ -5,6 +5,7 @@ export const stationStatusValues = ['active', 'maintenance', 'inactive', 'faulty
 export const currentTypeValues = ['AC', 'DC'] as const;
 
 export const socketTypeValues = ['Type2', 'CCS2', 'CHAdeMO', 'GBT', 'NACS', 'Other'] as const;
+export const connectorTypeValues = socketTypeValues;
 
 export const customFieldTypeValues = ['text', 'number', 'boolean', 'select', 'date', 'json'] as const;
 
@@ -29,11 +30,13 @@ export const stationSyncConflictFieldValues = [
 ] as const;
 
 export const stationDeletionModeValues = ['hard_delete'] as const;
+export const mobilePlatformValues = ['ios', 'android'] as const;
 
 export type UserRoleValue = (typeof userRoleValues)[number];
 export type StationStatusValue = (typeof stationStatusValues)[number];
 export type CurrentTypeValue = (typeof currentTypeValues)[number];
 export type SocketTypeValue = (typeof socketTypeValues)[number];
+export type ConnectorTypeValue = (typeof connectorTypeValues)[number];
 export type CustomFieldTypeValue = (typeof customFieldTypeValues)[number];
 export type StationTestResultValue = (typeof stationTestResultValues)[number];
 export type IssueSeverityValue = (typeof issueSeverityValues)[number];
@@ -42,3 +45,4 @@ export type StationViewValue = (typeof stationViewValues)[number];
 export type AttachmentTargetTypeValue = (typeof attachmentTargetTypeValues)[number];
 export type StationSyncConflictFieldValue = (typeof stationSyncConflictFieldValues)[number];
 export type StationDeletionModeValue = (typeof stationDeletionModeValues)[number];
+export type MobilePlatformValue = (typeof mobilePlatformValues)[number];

@@ -6,11 +6,26 @@ export function ConfirmButton({
   label,
   confirmText,
   variant = 'secondary',
+  disabled = false,
 }: {
   onConfirm: () => void;
   label: string;
   confirmText: string;
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  disabled?: boolean;
 }) {
-  return <Button type='button' variant={variant} onClick={() => { if (window.confirm(confirmText)) onConfirm(); }}>{label}</Button>;
+  return (
+    <Button
+      type='button'
+      variant={variant}
+      disabled={disabled}
+      onClick={() => {
+        if (window.confirm(confirmText)) {
+          onConfirm();
+        }
+      }}
+    >
+      {label}
+    </Button>
+  );
 }

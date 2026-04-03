@@ -20,6 +20,8 @@ const navigation = [
     title: 'Administration',
     adminOnly: true,
     items: [
+      { label: 'Station Catalog', href: '/station-catalog' },
+      { label: 'Mobile App Config', href: '/mobile-app-config' },
       { label: 'Custom Fields', href: '/custom-fields' },
       { label: 'Users', href: '/users' },
       { label: 'Audit Logs', href: '/audit-logs' },
