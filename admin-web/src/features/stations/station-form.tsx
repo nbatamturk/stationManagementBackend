@@ -14,12 +14,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { ConnectorFieldsEditor } from './connector-fields-editor';
 import { ConnectorFormValue, connectorsFormSchema, deriveConnectorFields, toConnectorFormValue } from './connector-form';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const schema = z.object({
   name: z.string().trim().min(2, 'Name is required'),
   code: z.string().trim().min(2, 'Code is required'),
   qrCode: z.string().trim().min(2, 'QR code is required'),
-  brandId: z.string().uuid('Brand is required'),
-  modelId: z.string().uuid('Model is required'),
+  brandId: z.string().regex(UUID_PATTERN, 'Brand is required'),
+  modelId: z.string().regex(UUID_PATTERN, 'Model is required'),
   serialNumber: z.string().trim().min(2, 'Serial number is required'),
   location: z.string().trim().min(2, 'Location is required').max(500, 'Location is too long'),
   status: z.enum(['active', 'maintenance', 'inactive', 'faulty']),
@@ -81,13 +83,92 @@ function getSelectOptions(field: CustomField) {
   return Array.isArray(rawOptions) ? rawOptions.filter((option): option is string => typeof option === 'string') : [];
 }
 
-function getDefaultValues(initial: Partial<Station> | undefined, customFields: CustomField[]): FormValues {
+function isUuid(value: string | null | undefined): value is string {
+  return typeof value === 'string' && UUID_PATTERN.test(value);
+}
+
+function buildEditableBrands(config: StationConfig, initial?: Partial<Station>) {
+  const brands = [...config.brands];
+
+  if (initial?.brandId && !brands.some((brand) => brand.id === initial.brandId)) {
+    brands.push({
+      id: initial.brandId,
+      name: initial.brand ?? 'Unknown brand',
+      isActive: false,
+      createdAt: '',
+      updatedAt: '',
+    });
+  }
+
+  return brands;
+}
+
+function buildEditableModels(config: StationConfig, initial?: Partial<Station>) {
+  const models = [...config.models];
+
+  if (initial?.modelId && !models.some((model) => model.id === initial.modelId)) {
+    models.push({
+      id: initial.modelId,
+      brandId: initial.brandId ?? '',
+      name: initial.model ?? 'Unknown model',
+      description: null,
+      imageUrl: null,
+      logoUrl: null,
+      isActive: false,
+      createdAt: '',
+      updatedAt: '',
+      latestTemplateVersion: null,
+      latestTemplateConnectors: [],
+    });
+  }
+
+  return models;
+}
+
+function resolveInitialBrandId(initial: Partial<Station> | undefined, brands: StationConfig['brands']) {
+  if (isUuid(initial?.brandId)) {
+    return initial.brandId;
+  }
+
+  if (!initial?.brand) {
+    return '';
+  }
+
+  return brands.find((brand) => brand.name === initial.brand)?.id ?? '';
+}
+
+function resolveInitialModelId(
+  initial: Partial<Station> | undefined,
+  models: StationConfig['models'],
+  brandId: string,
+) {
+  if (isUuid(initial?.modelId)) {
+    return initial.modelId;
+  }
+
+  if (!initial?.model) {
+    return '';
+  }
+
+  return (
+    models.find((model) => model.name === initial.model && (!brandId || model.brandId === brandId))?.id ??
+    models.find((model) => model.name === initial.model)?.id ??
+    ''
+  );
+}
+
+function getDefaultValues(initial: Partial<Station> | undefined, customFields: CustomField[], config: StationConfig): FormValues {
+  const editableBrands = buildEditableBrands(config, initial);
+  const editableModels = buildEditableModels(config, initial);
+  const resolvedBrandId = resolveInitialBrandId(initial, editableBrands);
+  const resolvedModelId = resolveInitialModelId(initial, editableModels, resolvedBrandId);
+
   return {
     name: initial?.name ?? '',
     code: initial?.code ?? '',
     qrCode: initial?.qrCode ?? '',
-    brandId: initial?.brandId ?? '',
-    modelId: initial?.modelId ?? '',
+    brandId: resolvedBrandId,
+    modelId: resolvedModelId,
     serialNumber: initial?.serialNumber ?? '',
     location: initial?.location ?? '',
     status: initial?.status ?? 'active',
@@ -112,9 +193,11 @@ export function StationForm({
   actionSlot?: ReactNode;
 }) {
   const [submitError, setSubmitError] = useState('');
+  const editableBrands = useMemo(() => buildEditableBrands(config, initial), [config, initial]);
+  const editableModels = useMemo(() => buildEditableModels(config, initial), [config, initial]);
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: getDefaultValues(initial, customFields),
+    defaultValues: getDefaultValues(initial, customFields, config),
   });
   const { fields, append, remove, replace } = useFieldArray({
     control: form.control,
@@ -125,23 +208,23 @@ export function StationForm({
   const watchedConnectors = useWatch({ control: form.control, name: 'connectors' });
 
   const brandOptions = useMemo(
-    () => [...config.brands].sort((left, right) => left.name.localeCompare(right.name)),
-    [config.brands],
+    () => [...editableBrands].sort((left, right) => left.name.localeCompare(right.name)),
+    [editableBrands],
   );
   const modelOptions = useMemo(
     () =>
-      [...config.models]
+      [...editableModels]
         .filter((model) => model.brandId === selectedBrandId)
         .sort((left, right) => left.name.localeCompare(right.name)),
-    [config.models, selectedBrandId],
+    [editableModels, selectedBrandId],
   );
   const selectedModel = useMemo(
-    () => config.models.find((model) => model.id === selectedModelId) ?? null,
-    [config.models, selectedModelId],
+    () => editableModels.find((model) => model.id === selectedModelId) ?? null,
+    [editableModels, selectedModelId],
   );
   const selectedBrand = useMemo(
-    () => config.brands.find((brand) => brand.id === selectedBrandId) ?? null,
-    [config.brands, selectedBrandId],
+    () => editableBrands.find((brand) => brand.id === selectedBrandId) ?? null,
+    [editableBrands, selectedBrandId],
   );
   const derivedFields = useMemo(
     () => deriveConnectorFields((watchedConnectors ?? []) as ConnectorFormValue[]),

@@ -1,4 +1,4 @@
-import type { Station, StationCustomValuesByFieldId } from '@/types';
+import type { Station, StationConnectorSummary, StationCustomValuesByFieldId } from '@/types';
 
 export interface StationListItem
   extends Pick<
@@ -7,6 +7,8 @@ export interface StationListItem
     | 'name'
     | 'code'
     | 'location'
+    | 'brandId'
+    | 'modelId'
     | 'brand'
     | 'model'
     | 'powerKw'
@@ -16,7 +18,9 @@ export interface StationListItem
     | 'updatedAt'
     | 'isArchived'
     | 'archivedAt'
+    | 'modelTemplateVersion'
   > {
+  connectorSummary: StationConnectorSummary;
   summary: NonNullable<Station['summary']>;
 }
 

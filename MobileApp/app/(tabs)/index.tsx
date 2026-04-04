@@ -8,7 +8,6 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
-  SectionHeader,
   StatusBadge,
   colors,
 } from '@/components';
@@ -118,11 +117,6 @@ export default function DashboardScreen(): React.JSX.Element {
 
   return (
     <AppScreen refreshing={refreshing} onRefresh={() => void refreshScreen()}>
-      <SectionHeader
-        title="Field Dashboard"
-        subtitle="Review the latest station activity and refresh backend-driven field data when needed."
-      />
-
       {isAdmin ? (
         <AppCard style={styles.summaryCard}>
           <View style={styles.cardHeader}>
@@ -157,15 +151,7 @@ export default function DashboardScreen(): React.JSX.Element {
             </View>
           ) : null}
         </AppCard>
-      ) : (
-        <AppCard>
-          <Text style={styles.cardTitle}>Field Mode</Text>
-          <Text style={styles.cardSubtitle}>
-            This dashboard stays lightweight for field users. Use the recent station list below or go
-            straight to scan/search workflows.
-          </Text>
-        </AppCard>
-      )}
+      ) : null}
 
       <AppCard>
         <View style={styles.cardHeader}>

@@ -22,8 +22,6 @@ type StationModelPayload = {
   brandId: string;
   name: string;
   description?: string | null;
-  imageUrl?: string | null;
-  logoUrl?: string | null;
   isActive?: boolean;
 };
 
@@ -54,6 +52,16 @@ export const stationsClient = {
     apiFetch<SuccessResponse<StationCatalogModel>>('/stations/models', { method: 'POST', body: JSON.stringify(payload) }),
   updateModel: (id: string, payload: Partial<StationModelPayload>) =>
     apiFetch<SuccessResponse<StationCatalogModel>>(`/stations/models/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  uploadModelImage: (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiFetch<SuccessResponse<StationCatalogModel>>(`/stations/models/${id}/image`, {
+      method: 'PUT',
+      body: formData,
+    });
+  },
+  deleteModelImage: (id: string) =>
+    apiFetch<SuccessResponse<DeleteResult>>(`/stations/models/${id}/image`, { method: 'DELETE' }),
   deleteModel: (id: string) =>
     apiFetch<SuccessResponse<DeleteResult>>(`/stations/models/${id}`, { method: 'DELETE' }),
   replaceModelTemplate: (id: string, connectors: StationConnectorInput[]) =>

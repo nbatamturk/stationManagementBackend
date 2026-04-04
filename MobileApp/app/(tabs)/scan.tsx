@@ -174,7 +174,7 @@ export default function QrScanScreen(): React.JSX.Element {
 
   if (!permission.granted) {
     return (
-      <AppScreen>
+      <AppScreen keyboardAvoiding>
         <AppCard>
           <Text style={styles.panelTitle}>Camera Access Required For Fast Scan</Text>
           <Text style={styles.helperText}>
@@ -190,7 +190,9 @@ export default function QrScanScreen(): React.JSX.Element {
   }
 
   return (
-    <AppScreen>
+    <AppScreen keyboardAvoiding>
+      {lookupCard}
+
       <AppCard>
         <Text style={styles.panelTitle}>Scan Station QR</Text>
         <Text style={styles.helperText}>
@@ -228,8 +230,6 @@ export default function QrScanScreen(): React.JSX.Element {
           </View>
         ) : null}
       </AppCard>
-
-      {lookupCard}
     </AppScreen>
   );
 }

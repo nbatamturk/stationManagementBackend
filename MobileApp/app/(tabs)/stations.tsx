@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,12 +15,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   AppButton,
   AppCard,
+  AppMetaFooter,
   AppTextInput,
   EmptyState,
   ErrorState,
   LoadingState,
   OptionChip,
-  SectionHeader,
   StatusBadge,
   colors,
 } from '@/components';
@@ -102,6 +103,19 @@ const testResultLabels: Record<TestResult, string> = {
   warning: 'Latest Test: Warning',
   fail: 'Latest Test: Fail',
 };
+
+const formatConnectorCapability = (item: StationListItem): string => {
+  if (item.connectorSummary.hasAC && item.connectorSummary.hasDC) {
+    return 'AC + DC';
+  }
+
+  return item.connectorSummary.hasDC ? 'DC only' : 'AC only';
+};
+
+const formatConnectorTypes = (item: StationListItem): string =>
+  item.connectorSummary.types.length > 0
+    ? item.connectorSummary.types.join(', ')
+    : 'Not available';
 
 type ActiveFilterTag = {
   id: string;
@@ -298,6 +312,13 @@ export default function StationListScreen(): React.JSX.Element {
     () => formatAppliedFilterTags(appliedFilters, customFilterDefinitions),
     [appliedFilters, customFilterDefinitions],
   );
+  const activeAdvancedFilterCount = useMemo(
+    () =>
+      activeFilterTags.filter(
+        (tag) => !['search', 'status', 'currentType'].includes(tag.type),
+      ).length,
+    [activeFilterTags],
+  );
 
   const hasActiveFilters = activeFilterTags.length > 0;
   const hasAdvancedDraftChanges =
@@ -422,6 +443,7 @@ export default function StationListScreen(): React.JSX.Element {
           searchText: draftFilters.searchText,
           status: draftFilters.status,
           brand: draftFilters.brand,
+          model: draftFilters.model,
           currentType: draftFilters.currentType,
         }),
         getCustomFieldDefinitions(true),
@@ -608,7 +630,14 @@ export default function StationListScreen(): React.JSX.Element {
             {item.code} • {item.location}
           </Text>
           <Text style={styles.stationMeta}>
-            {item.brand} {item.model} • {item.powerKw} kW • {item.currentType}
+            {item.brand} • {item.model}
+          </Text>
+          <Text style={styles.stationMeta}>
+            {item.connectorSummary.count} connector{item.connectorSummary.count === 1 ? '' : 's'} •{' '}
+            {formatConnectorCapability(item)} • {Math.max(item.connectorSummary.maxPowerKw, item.powerKw)} kW
+          </Text>
+          <Text style={styles.stationMeta}>
+            Types: {formatConnectorTypes(item)}
           </Text>
           <Text style={styles.stationMeta}>Last update: {formatDateTime(item.updatedAt)}</Text>
         </View>
@@ -616,6 +645,33 @@ export default function StationListScreen(): React.JSX.Element {
       </View>
 
       <View style={styles.summaryRow}>
+        <SummaryPill
+          label={`${item.connectorSummary.count} connector${item.connectorSummary.count === 1 ? '' : 's'}`}
+          backgroundColor="#EEF4FF"
+          color={colors.primary}
+        />
+        <SummaryPill
+          label={formatConnectorCapability(item)}
+          backgroundColor="#EEF7EE"
+          color="#0F9D58"
+        />
+        <SummaryPill
+          label={`Max ${Math.max(item.connectorSummary.maxPowerKw, item.powerKw)} kW`}
+          backgroundColor="#FFF7E6"
+          color="#C17900"
+        />
+        <SummaryPill
+          label={formatConnectorTypes(item)}
+          backgroundColor="#F4F6FA"
+          color={colors.mutedText}
+        />
+        {item.modelTemplateVersion ? (
+          <SummaryPill
+            label={`Template v${item.modelTemplateVersion}`}
+            backgroundColor="#F5EEFF"
+            color="#6E41C3"
+          />
+        ) : null}
         <SummaryPill
           label={
             item.summary.openIssueCount > 0
@@ -662,38 +718,39 @@ export default function StationListScreen(): React.JSX.Element {
 
   const header = (
     <View style={styles.headerContent}>
-      <SectionHeader
-        title="Stations"
-        subtitle="Search fast in the field, then use advanced filters only when you need to narrow the result set."
-      />
-
       <AppCard style={styles.filterCard}>
-        <View style={styles.filterHeaderRow}>
-          <View style={styles.filterHeaderText}>
-            <Text style={styles.filterTitle}>Find Stations</Text>
-            <Text style={styles.filterSubtitle}>
-              Search by station name, code, or serial-related text. Quick filters update the list
-              automatically.
-            </Text>
-          </View>
-          <AppButton
-            label={showAdvancedFilters ? 'Hide Filters' : 'More Filters'}
-            variant="secondary"
-            onPress={() => setShowAdvancedFilters((prev) => !prev)}
-            style={styles.filterToggleButton}
-          />
-        </View>
-
         <AppTextInput
-          label="Search"
+          label="Find Stations"
           value={searchText}
           onChangeText={setSearchText}
           placeholder="Name, code, QR, or serial"
           autoCapitalize="none"
         />
 
+        <View style={styles.compactActionRow}>
+          <AppButton
+            label={activeAdvancedFilterCount > 0 ? `Filters (${activeAdvancedFilterCount})` : 'Filters'}
+            variant="secondary"
+            onPress={() => setShowAdvancedFilters(true)}
+            style={styles.compactActionButton}
+          />
+          <AppButton
+            label="Scan QR"
+            variant="secondary"
+            onPress={() => router.push('/scan')}
+            style={styles.compactActionButton}
+          />
+          <AppButton
+            label="Clear"
+            variant="secondary"
+            onPress={clearAllFilters}
+            disabled={!hasActiveFilters}
+            style={styles.compactActionButton}
+          />
+        </View>
+
         <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Quick Status</Text>
+          <Text style={styles.filterLabel}>Status</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -743,14 +800,9 @@ export default function StationListScreen(): React.JSX.Element {
                   }`}
             </Text>
           </View>
-          {hasActiveFilters ? (
-            <AppButton
-              label="Clear All"
-              variant="secondary"
-              onPress={clearAllFilters}
-              style={styles.clearButton}
-            />
-          ) : null}
+          <Text style={styles.resultsMeta}>
+            {loadingMore ? 'Loading more...' : hasActiveFilters ? `${activeFilterTags.length} filters active` : 'Live results'}
+          </Text>
         </View>
 
         {errorMessage && stations.length > 0 ? (
@@ -786,22 +838,41 @@ export default function StationListScreen(): React.JSX.Element {
           </View>
         ) : null}
 
-        {showAdvancedFilters ? (
-          <View style={styles.advancedFiltersPanel}>
-            <View style={styles.advancedHeader}>
-              <View style={styles.advancedHeaderText}>
-                <Text style={styles.advancedTitle}>Advanced Filters</Text>
-                <Text style={styles.advancedSubtitle}>
-                  Change draft filters here, then apply them when ready.
-                </Text>
-              </View>
-              {hasAdvancedDraftChanges ? (
-                <View style={styles.draftBadge}>
-                  <Text style={styles.draftBadgeText}>Draft</Text>
-                </View>
-              ) : null}
-            </View>
+      </AppCard>
+    </View>
+  );
 
+  const advancedFiltersSheet = (
+    <Modal
+      visible={showAdvancedFilters}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setShowAdvancedFilters(false)}
+    >
+      <View style={styles.sheetOverlay}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setShowAdvancedFilters(false)} />
+        <View style={[styles.sheetPanel, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.advancedHeader}>
+            <View style={styles.advancedHeaderText}>
+              <Text style={styles.advancedTitle}>Advanced Filters</Text>
+              <Text style={styles.advancedSubtitle}>
+                Fine tune brand, model, sort order, and custom fields.
+              </Text>
+            </View>
+            {hasAdvancedDraftChanges ? (
+              <View style={styles.draftBadge}>
+                <Text style={styles.draftBadgeText}>Draft</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <ScrollView
+            style={styles.sheetScroll}
+            contentContainerStyle={styles.sheetScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
             {metadataLoading ? <LoadingState label="Loading advanced filters..." compact /> : null}
             {metadataError ? (
               <ErrorState
@@ -988,108 +1059,114 @@ export default function StationListScreen(): React.JSX.Element {
                     })}
                   </View>
                 ) : null}
-
-                <View style={styles.advancedActionRow}>
-                  <AppButton
-                    label="Apply Filters"
-                    onPress={applyAdvancedFilters}
-                    disabled={Object.keys(customFilterErrors).length > 0}
-                    style={styles.advancedActionButton}
-                  />
-                  <AppButton
-                    label="Reset Advanced"
-                    onPress={resetAdvancedFilters}
-                    variant="secondary"
-                    style={styles.advancedActionButton}
-                  />
-                </View>
               </>
             ) : null}
+          </ScrollView>
+
+          <View style={styles.advancedActionRow}>
+            <AppButton
+              label="Apply Filters"
+              onPress={applyAdvancedFilters}
+              disabled={Object.keys(customFilterErrors).length > 0}
+              style={styles.advancedActionButton}
+            />
+            <AppButton
+              label="Reset"
+              onPress={resetAdvancedFilters}
+              variant="secondary"
+              style={styles.advancedActionButton}
+            />
           </View>
-        ) : null}
-      </AppCard>
-    </View>
+        </View>
+      </View>
+    </Modal>
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
-      <FlatList
-        data={stations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderStationCard}
-        ListHeaderComponent={header}
-        ListFooterComponent={
-          loadingMore ? (
-            <View style={styles.footerLoader}>
-              <LoadingState label="Loading more stations..." compact />
+    <>
+      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
+        <FlatList
+          data={stations}
+          keyExtractor={(item) => item.id}
+          renderItem={renderStationCard}
+          ListHeaderComponent={header}
+          ListFooterComponent={
+            <View style={styles.listFooter}>
+              {loadingMore ? (
+                <View style={styles.footerLoader}>
+                  <LoadingState label="Loading more stations..." compact />
+                </View>
+              ) : null}
+              <AppMetaFooter />
             </View>
-          ) : null
-        }
-        ListEmptyComponent={
-          initialLoading ? (
-            <LoadingState label="Loading stations..." />
-          ) : errorMessage ? (
-            <ErrorState
-              title="Station list unavailable"
-              description={errorMessage}
-              actionLabel="Retry"
-              onActionPress={() => {
-                void loadStations('refresh');
-              }}
-            />
-          ) : hasActiveFilters ? (
-            <EmptyState
-              title="No matching stations"
-              description="No station matches the current filters. Clear filters or broaden the search."
-              actionLabel="Clear Filters"
-              onActionPress={clearAllFilters}
-            />
-          ) : (
-            <EmptyState
-              title="No stations yet"
-              description="No station records were returned from backend yet."
-              actionLabel="Refresh"
-              onActionPress={() => {
-                void loadStations('refresh');
-              }}
-            />
-          )
-        }
-        onRefresh={() => {
-          void loadStations('refresh');
-        }}
-        refreshing={refreshing}
-        onEndReached={() => {
-          void loadMoreStations();
-        }}
-        onEndReachedThreshold={0.4}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: 24 + Math.max(insets.bottom, 16) + (canWriteStations ? 88 : 0) },
-          stations.length === 0 ? styles.emptyListContent : null,
-        ]}
-      />
-
-      {canWriteStations ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Create new station"
-          onPress={() => router.push('/stations/edit')}
-          style={({ pressed }) => [
-            styles.fab,
-            {
-              bottom: Math.max(insets.bottom, 0) +2,
-            },
-            pressed && styles.fabPressed,
+          }
+          ListEmptyComponent={
+            initialLoading ? (
+              <LoadingState label="Loading stations..." />
+            ) : errorMessage ? (
+              <ErrorState
+                title="Station list unavailable"
+                description={errorMessage}
+                actionLabel="Retry"
+                onActionPress={() => {
+                  void loadStations('refresh');
+                }}
+              />
+            ) : hasActiveFilters ? (
+              <EmptyState
+                title="No matching stations"
+                description="No station matches the current filters. Clear filters or broaden the search."
+                actionLabel="Clear Filters"
+                onActionPress={clearAllFilters}
+              />
+            ) : (
+              <EmptyState
+                title="No stations yet"
+                description="No station records were returned from backend yet."
+                actionLabel="Refresh"
+                onActionPress={() => {
+                  void loadStations('refresh');
+                }}
+              />
+            )
+          }
+          onRefresh={() => {
+            void loadStations('refresh');
+          }}
+          refreshing={refreshing}
+          onEndReached={() => {
+            void loadMoreStations();
+          }}
+          onEndReachedThreshold={0.4}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: 24 + Math.max(insets.bottom, 16) + (canWriteStations ? 88 : 0) },
+            stations.length === 0 ? styles.emptyListContent : null,
           ]}
-        >
-          <Ionicons name="add" size={20} color="#FFFFFF" />
-          <Text style={styles.fabLabel}>New Station</Text>
-        </Pressable>
-      ) : null}
-    </SafeAreaView>
+        />
+
+        {canWriteStations ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create new station"
+            onPress={() => router.push('/stations/edit')}
+            style={({ pressed }) => [
+              styles.fab,
+              {
+                bottom: Math.max(insets.bottom, 0) + 2,
+              },
+              pressed && styles.fabPressed,
+            ]}
+          >
+            <Ionicons name="add" size={20} color="#FFFFFF" />
+            <Text style={styles.fabLabel}>New Station</Text>
+          </Pressable>
+        ) : null}
+      </SafeAreaView>
+      {advancedFiltersSheet}
+    </>
   );
 }
 
@@ -1113,6 +1190,15 @@ const styles = StyleSheet.create({
   },
   filterCard: {
     gap: 14,
+  },
+  compactActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  compactActionButton: {
+    flex: 1,
+    minWidth: 92,
   },
   filterHeaderRow: {
     flexDirection: 'row',
@@ -1178,11 +1264,46 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     fontSize: 12,
   },
-  clearButton: {
-    minWidth: 110,
+  resultsMeta: {
+    color: colors.mutedText,
+    fontSize: 12,
+    fontWeight: '600',
   },
   activeFilterSection: {
     gap: 8,
+  },
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(17, 24, 39, 0.28)',
+  },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  sheetPanel: {
+    maxHeight: '82%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: colors.surface,
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    gap: 12,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: '#CFD7E2',
+  },
+  sheetScroll: {
+    flexGrow: 0,
+  },
+  sheetScrollContent: {
+    gap: 12,
+    paddingBottom: 4,
   },
   activeFilterHeader: {
     flexDirection: 'row',
@@ -1222,14 +1343,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 11,
     fontWeight: '700',
-  },
-  advancedFiltersPanel: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 12,
-    gap: 12,
-    backgroundColor: '#FCFDFF',
   },
   advancedHeader: {
     flexDirection: 'row',
@@ -1325,6 +1438,10 @@ const styles = StyleSheet.create({
   },
   footerLoader: {
     paddingBottom: 8,
+  },
+  listFooter: {
+    gap: 8,
+    paddingTop: 8,
   },
   fab: {
     position: 'absolute',

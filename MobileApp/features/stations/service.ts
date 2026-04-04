@@ -4,12 +4,19 @@ import { apiFetch } from '@/lib/api/http';
 import type {
   CustomFieldDefinition,
   Station,
+  StationConfig,
+  StationConnector,
+  StationConnectorInput,
+  StationCurrentType,
   StationCustomValuesByFieldId,
   StationDraft,
   StationListFilters,
+  StationSummary,
+  StationSync,
 } from '@/types';
 import { dateOnlyToIsoDateTime, isValidDateOnly, isoToDateOnly } from '@/utils/date';
 import { parseSelectOptions } from '@/utils/custom-field';
+import { deriveConnectorFields } from './helpers';
 
 import type { StationFormRecord, StationListItem, StationListPage } from './types';
 
@@ -27,32 +34,35 @@ type PaginatedResponse<T> = {
   };
 };
 
-type ApiStationSummary = {
+type ApiStationConnector = StationConnector;
+
+type ApiStation = {
   id: string;
   name: string;
   code: string;
   qrCode: string;
+  brandId: string;
+  modelId: string;
   brand: string;
   model: string;
+  serialNumber: string;
   powerKw: number;
-  currentType: Station['currentType'];
+  currentType: StationCurrentType;
   socketType: string;
   location: string;
-  status: Extract<Station['status'], 'active' | 'maintenance' | 'inactive' | 'faulty'>;
+  status: Station['status'];
   lastTestDate: string | null;
+  notes?: string | null;
+  createdAt?: string;
   updatedAt: string;
   isArchived: boolean;
   archivedAt: string | null;
-  summary: NonNullable<Station['summary']>;
-  sync: NonNullable<Station['sync']>;
-};
-
-type ApiStation = ApiStationSummary & {
-  model: string;
-  serialNumber: string;
-  notes?: string | null;
-  createdAt?: string;
+  modelTemplateVersion: number | null;
+  connectorSummary: Station['connectorSummary'];
+  connectors?: ApiStationConnector[];
   customFields?: Record<string, unknown>;
+  summary?: StationSummary;
+  sync?: StationSync;
 };
 
 type StationListQuery = Record<string, string | number | boolean | undefined>;
@@ -60,16 +70,14 @@ type StationUpsertPayload = {
   name: string;
   code: string;
   qrCode: string;
-  brand: string;
-  model: string;
+  brandId: string;
+  modelId: string;
   serialNumber: string;
-  powerKw: number;
-  currentType: Station['currentType'];
-  socketType: StationDraft['socketType'];
   location: string;
-  status: Extract<Station['status'], 'active' | 'maintenance' | 'inactive' | 'faulty'>;
+  status: Station['status'];
   lastTestDate?: string | null;
   notes?: string | null;
+  connectors: StationConnectorInput[];
   customFields?: Record<string, unknown>;
 };
 
@@ -77,8 +85,11 @@ const DEFAULT_PAGE_SIZE = 20;
 
 type StationFilterMetadataFilters = Pick<
   StationListFilters,
-  'searchText' | 'status' | 'brand' | 'currentType'
+  'brand' | 'currentType' | 'model' | 'searchText' | 'status'
 >;
+
+let stationConfigCache: StationConfig | null = null;
+let stationConfigRequest: Promise<StationConfig> | null = null;
 
 const formatCustomFieldValue = (value: unknown): string => {
   if (value === null || value === undefined) {
@@ -106,15 +117,40 @@ const trimToNull = (value: string): string | null => {
   return normalized ? normalized : null;
 };
 
-const parsePowerKw = (value: string): number => {
-  const normalized = value.trim();
-  const parsed = Number(normalized);
-
-  if (!normalized || Number.isNaN(parsed) || !Number.isFinite(parsed)) {
-    throw new Error('Power (kW) must be a valid number.');
+const parseConnectorPayload = (draft: StationDraft): StationConnectorInput[] => {
+  if (draft.connectors.length === 0) {
+    throw new Error('At least one connector is required.');
   }
 
-  return parsed;
+  const usedConnectorNumbers = new Set<number>();
+
+  return draft.connectors.map((connector, index) => {
+    const connectorNo = Number(connector.connectorNo.trim());
+    const powerKw = Number(connector.powerKw.trim());
+
+    if (!Number.isInteger(connectorNo) || connectorNo < 1) {
+      throw new Error(`Connector ${index + 1}: connector number must be at least 1.`);
+    }
+
+    if (usedConnectorNumbers.has(connectorNo)) {
+      throw new Error(`Connector number ${connectorNo} is duplicated.`);
+    }
+
+    usedConnectorNumbers.add(connectorNo);
+
+    if (!Number.isFinite(powerKw) || powerKw <= 0) {
+      throw new Error(`Connector ${index + 1}: power must be a valid number greater than 0.`);
+    }
+
+    return {
+      connectorNo,
+      connectorType: connector.connectorType,
+      currentType: connector.currentType,
+      powerKw,
+      isActive: connector.isActive,
+      sortOrder: index + 1,
+    };
+  });
 };
 
 const serializeCustomFieldValue = (
@@ -204,12 +240,9 @@ const buildStationUpsertPayload = async (
     name: draft.name.trim(),
     code: draft.code.trim(),
     qrCode: draft.qrCode.trim(),
-    brand: draft.brand.trim(),
-    model: draft.model.trim(),
+    brandId: draft.brandId,
+    modelId: draft.modelId,
     serialNumber: draft.serialNumber.trim(),
-    powerKw: parsePowerKw(draft.powerKw),
-    currentType: draft.currentType,
-    socketType: draft.socketType,
     location: draft.location.trim(),
     status: draft.status,
     lastTestDate: normalizedLastTestDate
@@ -218,15 +251,28 @@ const buildStationUpsertPayload = async (
         ? null
         : undefined,
     notes: isEditMode ? trimToNull(draft.notes) : trimToUndefined(draft.notes),
+    connectors: parseConnectorPayload(draft),
     customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
   };
 };
+
+const mapApiConnector = (connector: ApiStationConnector): StationConnector => ({
+  id: connector.id,
+  connectorNo: connector.connectorNo,
+  connectorType: connector.connectorType,
+  currentType: connector.currentType,
+  powerKw: connector.powerKw,
+  isActive: connector.isActive,
+  sortOrder: connector.sortOrder,
+});
 
 const mapApiStation = (station: ApiStation): Station => ({
   id: station.id,
   name: station.name,
   code: station.code,
   qrCode: station.qrCode,
+  brandId: station.brandId,
+  modelId: station.modelId,
   brand: station.brand,
   model: station.model,
   serialNumber: station.serialNumber,
@@ -241,16 +287,21 @@ const mapApiStation = (station: ApiStation): Station => ({
   updatedAt: station.updatedAt,
   isArchived: station.isArchived,
   archivedAt: station.archivedAt,
+  modelTemplateVersion: station.modelTemplateVersion,
+  connectorSummary: station.connectorSummary,
+  connectors: station.connectors?.map(mapApiConnector),
   summary: station.summary,
   sync: station.sync,
   customFields: station.customFields ?? {},
 });
 
-const mapApiStationListItem = (station: ApiStationSummary): StationListItem => ({
+const mapApiStationListItem = (station: ApiStation): StationListItem => ({
   id: station.id,
   name: station.name,
   code: station.code,
   location: station.location,
+  brandId: station.brandId,
+  modelId: station.modelId,
   brand: station.brand,
   model: station.model,
   powerKw: station.powerKw,
@@ -260,7 +311,16 @@ const mapApiStationListItem = (station: ApiStationSummary): StationListItem => (
   updatedAt: station.updatedAt,
   isArchived: station.isArchived,
   archivedAt: station.archivedAt,
-  summary: station.summary,
+  modelTemplateVersion: station.modelTemplateVersion,
+  connectorSummary: station.connectorSummary,
+  summary: station.summary ?? {
+    totalIssueCount: 0,
+    openIssueCount: 0,
+    hasOpenIssues: false,
+    attachmentCount: 0,
+    testHistoryCount: 0,
+    latestTestResult: null,
+  },
 });
 
 const buildCustomValueMap = (
@@ -328,6 +388,22 @@ const buildStationListQuery = async (
   return query;
 };
 
+const fetchStationPage = async (
+  query: StationListQuery,
+  page = 1,
+  limit = DEFAULT_PAGE_SIZE,
+  view: 'compact' | 'full' = 'full',
+): Promise<PaginatedResponse<ApiStation>> => {
+  return apiFetch<PaginatedResponse<ApiStation>>('/stations', {
+    query: {
+      ...query,
+      page,
+      limit,
+      view,
+    },
+  });
+};
+
 const buildMetadataQuery = (
   filters: Partial<StationFilterMetadataFilters>,
 ): StationListQuery => {
@@ -340,87 +416,38 @@ const buildMetadataQuery = (
       filters.status && filters.status !== 'all' && filters.status !== 'archived'
         ? filters.status
         : undefined,
-    brand: filters.brand && filters.brand !== 'all' ? filters.brand : undefined,
   };
 
   return query;
 };
 
-const fetchStationPage = async (
-  query: StationListQuery,
-  page = 1,
-  limit = DEFAULT_PAGE_SIZE,
-  view: 'compact' | 'full' = 'full',
-): Promise<PaginatedResponse<ApiStationSummary | ApiStation>> => {
-  return apiFetch<PaginatedResponse<ApiStationSummary | ApiStation>>('/stations', {
-    query: {
-      ...query,
-      page,
-      limit,
-      view,
-    },
-  });
+export const clearStationConfigCache = (): void => {
+  stationConfigCache = null;
+  stationConfigRequest = null;
 };
 
-const listAllStations = async (query: StationListQuery = {}): Promise<ApiStation[]> => {
-  const firstPage = (await fetchStationPage(query, 1, DEFAULT_PAGE_SIZE, 'full')) as PaginatedResponse<ApiStation>;
-  const stations = [...firstPage.data];
-
-  for (let page = 2; page <= firstPage.meta.totalPages; page += 1) {
-    const response = (await fetchStationPage(
-      query,
-      page,
-      DEFAULT_PAGE_SIZE,
-      'full',
-    )) as PaginatedResponse<ApiStation>;
-    stations.push(...response.data);
+export const getStationConfig = async (forceRefresh = false): Promise<StationConfig> => {
+  if (!forceRefresh && stationConfigCache) {
+    return stationConfigCache;
   }
 
-  return stations;
-};
+  if (!forceRefresh && stationConfigRequest) {
+    return stationConfigRequest;
+  }
 
-export const getStationList = async (
-  filters: StationListFilters,
-  page = 1,
-  limit = DEFAULT_PAGE_SIZE,
-): Promise<StationListPage> => {
-  const query = await buildStationListQuery(filters);
-  const response = (await fetchStationPage(
-    query,
-    page,
-    limit,
-    'compact',
-  )) as PaginatedResponse<ApiStationSummary>;
+  const request = apiFetch<SuccessResponse<StationConfig>>('/stations/config')
+    .then((response) => {
+      stationConfigCache = response.data;
+      stationConfigRequest = null;
+      return response.data;
+    })
+    .catch((error) => {
+      stationConfigRequest = null;
+      throw error;
+    });
 
-  return {
-    items: response.data.map(mapApiStationListItem),
-    meta: response.meta,
-    hasMore: response.meta.page < response.meta.totalPages,
-  };
-};
-
-export const getStationBrands = async (): Promise<string[]> => {
-  const stations = await listAllStations({
-    includeArchived: true,
-    sortBy: 'name',
-    sortOrder: 'asc',
-  });
-
-  return Array.from(new Set(stations.map((station) => station.brand))).sort((left, right) =>
-    left.localeCompare(right),
-  );
-};
-
-export const getStationModels = async (): Promise<string[]> => {
-  const stations = await listAllStations({
-    includeArchived: true,
-    sortBy: 'name',
-    sortOrder: 'asc',
-  });
-
-  return Array.from(new Set(stations.map((station) => station.model))).sort((left, right) =>
-    left.localeCompare(right),
-  );
+  stationConfigRequest = request;
+  return request;
 };
 
 export const getStationFilterOptions = async (
@@ -429,35 +456,39 @@ export const getStationFilterOptions = async (
   brands: string[];
   models: string[];
 }> => {
-  const [brandStations, modelStations] = await Promise.all([
-    listAllStations({
-      ...buildMetadataQuery({
-        searchText: filters.searchText,
-        status: filters.status,
-        currentType: filters.currentType,
-      }),
-      sortBy: 'name',
-      sortOrder: 'asc',
-    }),
-    listAllStations({
-      ...buildMetadataQuery({
-        searchText: filters.searchText,
-        status: filters.status,
-        currentType: filters.currentType,
-        brand: filters.brand,
-      }),
-      sortBy: 'name',
-      sortOrder: 'asc',
-    }),
-  ]);
+  const config = await getStationConfig();
+  const activeBrands = config.brands
+    .filter((brand) => brand.isActive)
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const selectedBrand =
+    filters.brand !== 'all'
+      ? activeBrands.find((brand) => brand.name === filters.brand) ??
+        config.brands.find((brand) => brand.name === filters.brand) ??
+        null
+      : null;
+  const activeModels = config.models
+    .filter((model) => model.isActive)
+    .filter((model) => !selectedBrand || model.brandId === selectedBrand.id)
+    .sort((left, right) => left.name.localeCompare(right.name));
 
   return {
-    brands: Array.from(new Set(brandStations.map((station) => station.brand))).sort((left, right) =>
-      left.localeCompare(right),
-    ),
-    models: Array.from(new Set(modelStations.map((station) => station.model))).sort((left, right) =>
-      left.localeCompare(right),
-    ),
+    brands: activeBrands.map((brand) => brand.name),
+    models: Array.from(new Set(activeModels.map((model) => model.name))),
+  };
+};
+
+export const getStationList = async (
+  filters: StationListFilters,
+  page = 1,
+  limit = DEFAULT_PAGE_SIZE,
+): Promise<StationListPage> => {
+  const query = await buildStationListQuery(filters);
+  const response = await fetchStationPage(query, page, limit, 'compact');
+
+  return {
+    items: response.data.map(mapApiStationListItem),
+    meta: response.meta,
+    hasMore: response.meta.page < response.meta.totalPages,
   };
 };
 
@@ -534,39 +565,12 @@ export const upsertStation = async (
   return response.data.id;
 };
 
-export const getDashboardMetrics = async (): Promise<{
-  total: number;
-  active: number;
-  maintenance: number;
-  inactive: number;
-  faulty: number;
-  archived: number;
-}> => {
-  const stations = await listAllStations({
-    includeArchived: true,
-    sortBy: 'updatedAt',
-    sortOrder: 'desc',
+export const applyStationModelTemplate = async (stationId: string): Promise<Station> => {
+  const response = await apiFetch<SuccessResponse<ApiStation>>(`/stations/${stationId}/apply-model-template`, {
+    method: 'POST',
   });
 
-  const counts = {
-    total: stations.length,
-    active: 0,
-    maintenance: 0,
-    inactive: 0,
-    faulty: 0,
-    archived: 0,
-  };
-
-  for (const station of stations) {
-    if (station.isArchived) {
-      counts.archived += 1;
-      continue;
-    }
-
-    counts[station.status] += 1;
-  }
-
-  return counts;
+  return mapApiStation(response.data);
 };
 
 export const getRecentlyUpdatedStations = async (limit = 5): Promise<Station[]> => {
@@ -621,3 +625,9 @@ export const deleteStation = async (stationId: string): Promise<void> => {
     method: 'DELETE',
   });
 };
+
+export const getDerivedStationFields = (connectors: StationConnectorInput[] | StationConnector[]) =>
+  deriveConnectorFields(connectors);
+
+export const getStationMetadataQuery = (filters: Partial<StationFilterMetadataFilters>) =>
+  buildMetadataQuery(filters);

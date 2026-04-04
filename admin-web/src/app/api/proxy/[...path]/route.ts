@@ -63,10 +63,21 @@ const proxy = async (request: NextRequest, context: RouteContext) => {
   }
 
   const responseHeaders = new Headers();
-  const contentType = upstream.headers.get('content-type');
 
-  if (contentType) {
-    responseHeaders.set('content-type', contentType);
+  for (const headerName of [
+    'cache-control',
+    'content-disposition',
+    'content-length',
+    'content-type',
+    'etag',
+    'last-modified',
+    'x-content-type-options',
+  ]) {
+    const value = upstream.headers.get(headerName);
+
+    if (value) {
+      responseHeaders.set(headerName, value);
+    }
   }
 
   return new NextResponse(upstream.body, {

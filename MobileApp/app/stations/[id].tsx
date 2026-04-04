@@ -1,5 +1,5 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import {
@@ -7,6 +7,7 @@ import {
   AppCard,
   AppScreen,
   AppTextInput,
+  AuthenticatedImage,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -18,15 +19,20 @@ import { useAuth } from '@/features/auth';
 import { getCustomFieldDefinitions } from '@/features/custom-fields';
 import { addStationIssueRecord, getStationIssueRecords } from '@/features/issues';
 import {
+  applyStationModelTemplate,
   archiveStation,
   deleteStation,
   getStationById,
+  getStationConfig,
 } from '@/features/stations';
 import { addStationTestHistory, getStationTestHistory } from '@/features/test-history';
+import { getApiBaseUrl } from '@/lib/api/http';
 import type {
   CustomFieldDefinition,
   IssueSeverity,
   Station,
+  StationCatalogModel,
+  StationConfig,
   StationIssueRecord,
   StationTestHistoryRecord,
   TestResult,
@@ -131,6 +137,30 @@ const formatCustomFieldValue = (
   return JSON.stringify(value);
 };
 
+const formatConnectorCapability = (station: Station): string => {
+  if (station.connectorSummary.hasAC && station.connectorSummary.hasDC) {
+    return 'AC + DC';
+  }
+
+  return station.connectorSummary.hasDC ? 'DC only' : 'AC only';
+};
+
+const resolveMediaUrl = (rawUrl?: string | null): string | null => {
+  if (!rawUrl) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(rawUrl)) {
+    return rawUrl;
+  }
+
+  if (rawUrl.startsWith('/')) {
+    return `${getApiBaseUrl()}${rawUrl}`;
+  }
+
+  return rawUrl;
+};
+
 export default function StationDetailScreen(): React.JSX.Element {
   const router = useRouter();
   const { user } = useAuth();
@@ -143,6 +173,9 @@ export default function StationDetailScreen(): React.JSX.Element {
   const [station, setStation] = useState<Station | null>(null);
   const [stationLoading, setStationLoading] = useState(true);
   const [stationError, setStationError] = useState('');
+  const [stationConfig, setStationConfig] = useState<StationConfig | null>(null);
+  const [stationConfigLoading, setStationConfigLoading] = useState(true);
+  const [stationConfigError, setStationConfigError] = useState('');
 
   const [customDefinitions, setCustomDefinitions] = useState<CustomFieldDefinition[]>([]);
   const [customFieldsLoading, setCustomFieldsLoading] = useState(true);
@@ -173,10 +206,16 @@ export default function StationDetailScreen(): React.JSX.Element {
   const [issueFormError, setIssueFormError] = useState('');
 
   const [processingLifecycleAction, setProcessingLifecycleAction] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [catalogImageAspectRatio, setCatalogImageAspectRatio] = useState<number | null>(null);
 
   const canWriteRecords = user?.role === 'admin' || user?.role === 'operator';
   const canManageLifecycle = user?.role === 'admin';
+
+  useEffect(() => {
+    setCatalogImageAspectRatio(null);
+  }, [station?.id, station?.modelId]);
 
   const loadStation = useCallback(
     async (showLoadingState = true) => {
@@ -234,6 +273,30 @@ export default function StationDetailScreen(): React.JSX.Element {
     } finally {
       if (showLoadingState) {
         setCustomFieldsLoading(false);
+      }
+    }
+  }, []);
+
+  const loadStationConfig = useCallback(async (showLoadingState = true) => {
+    if (showLoadingState) {
+      setStationConfigLoading(true);
+    }
+
+    setStationConfigError('');
+
+    try {
+      const result = await getStationConfig();
+      setStationConfig(result);
+    } catch (error) {
+      setStationConfig(null);
+      setStationConfigError(
+        error instanceof Error
+          ? `Could not load station catalog: ${error.message}`
+          : 'Could not load station catalog.',
+      );
+    } finally {
+      if (showLoadingState) {
+        setStationConfigLoading(false);
       }
     }
   }, []);
@@ -302,9 +365,38 @@ export default function StationDetailScreen(): React.JSX.Element {
 
   useFocusEffect(
     useCallback(() => {
-      void Promise.all([loadStation(), loadCustomFields(), loadTests(), loadIssues()]);
-    }, [loadCustomFields, loadIssues, loadStation, loadTests]),
+      void Promise.all([
+        loadStation(),
+        loadStationConfig(),
+        loadCustomFields(),
+        loadTests(),
+        loadIssues(),
+      ]);
+    }, [loadCustomFields, loadIssues, loadStation, loadStationConfig, loadTests]),
   );
+
+  const catalogModel = useMemo<StationCatalogModel | null>(() => {
+    if (!station || !stationConfig) {
+      return null;
+    }
+
+    return stationConfig.models.find((model) => model.id === station.modelId) ?? null;
+  }, [station, stationConfig]);
+
+  const catalogBrand = useMemo(() => {
+    if (!station || !stationConfig) {
+      return null;
+    }
+
+    return stationConfig.brands.find((brand) => brand.id === station.brandId) ?? null;
+  }, [station, stationConfig]);
+
+  const stationMediaUrl = useMemo(
+    () => resolveMediaUrl(catalogModel?.imageUrl ?? catalogModel?.logoUrl ?? null),
+    [catalogModel?.imageUrl, catalogModel?.logoUrl],
+  );
+
+  const connectorItems = useMemo(() => station?.connectors ?? [], [station?.connectors]);
 
   const customFieldRows = useMemo(() => {
     if (!station) {
@@ -524,6 +616,42 @@ export default function StationDetailScreen(): React.JSX.Element {
     );
   };
 
+  const confirmApplyTemplate = (): void => {
+    if (!station || station.isArchived || applyingTemplate) {
+      return;
+    }
+
+    Alert.alert(
+      'Apply Model Template',
+      'Replace the current station connectors with the latest connector template from the assigned catalog model?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Apply Template',
+          onPress: () => {
+            void (async () => {
+              setActionError('');
+              setApplyingTemplate(true);
+
+              try {
+                await applyStationModelTemplate(station.id);
+                await Promise.all([loadStation(false), loadStationConfig(false)]);
+              } catch (error) {
+                setActionError(
+                  error instanceof Error
+                    ? `Could not apply model template: ${error.message}`
+                    : 'Could not apply model template.',
+                );
+              } finally {
+                setApplyingTemplate(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   if (stationLoading) {
     return (
       <AppScreen>
@@ -541,7 +669,13 @@ export default function StationDetailScreen(): React.JSX.Element {
             description={stationError}
             actionLabel="Retry"
             onActionPress={() => {
-              void Promise.all([loadStation(), loadCustomFields(), loadTests(), loadIssues()]);
+              void Promise.all([
+                loadStation(),
+                loadStationConfig(),
+                loadCustomFields(),
+                loadTests(),
+                loadIssues(),
+              ]);
             }}
           />
         ) : (
@@ -598,17 +732,88 @@ export default function StationDetailScreen(): React.JSX.Element {
 
       {activeSection === 'overview' ? (
         <>
-          {stationError ? (
-            <ErrorState
-              title="Station overview needs refresh"
-              description={stationError}
-              actionLabel="Retry Overview"
-              onActionPress={() => {
-                void Promise.all([loadStation(), loadCustomFields(false)]);
+        {stationError ? (
+          <ErrorState
+            title="Station overview needs refresh"
+            description={stationError}
+            actionLabel="Retry Overview"
+            onActionPress={() => {
+                void Promise.all([loadStation(), loadStationConfig(false), loadCustomFields(false)]);
               }}
               compact
             />
           ) : null}
+
+          <AppCard>
+            <Text style={styles.cardTitle}>Catalog Model</Text>
+            {stationConfigLoading ? (
+              <LoadingState label="Loading catalog details..." compact />
+            ) : stationConfigError ? (
+              <ErrorState
+                title="Catalog details unavailable"
+                description={stationConfigError}
+                actionLabel="Retry"
+                onActionPress={() => {
+                  void loadStationConfig();
+                }}
+                compact
+              />
+            ) : catalogModel ? (
+              <View style={styles.catalogBlock}>
+                {stationMediaUrl ? (
+                  <View style={styles.catalogImageFrame}>
+                    <AuthenticatedImage
+                      uri={stationMediaUrl}
+                      style={[
+                        styles.catalogImage,
+                        catalogImageAspectRatio
+                          ? {
+                              aspectRatio: catalogImageAspectRatio,
+                              minHeight: 160,
+                              maxHeight: 320,
+                              height: undefined,
+                            }
+                          : null,
+                      ]}
+                      resizeMode="contain"
+                      onLoad={(event) => {
+                        const width = event.nativeEvent.source.width;
+                        const height = event.nativeEvent.source.height;
+
+                        if (!width || !height) {
+                          return;
+                        }
+
+                        setCatalogImageAspectRatio(width / height);
+                      }}
+                    />
+                  </View>
+                ) : null}
+                <View style={styles.catalogTextBlock}>
+                  <Text style={styles.catalogTitle}>
+                    {catalogBrand?.name ?? station.brand} {catalogModel.name}
+                  </Text>
+                  <Text style={styles.catalogMeta}>
+                    {catalogModel.isActive ? 'Active catalog model' : 'Inactive catalog model'} •{' '}
+                    {catalogModel.latestTemplateVersion
+                      ? `latest template v${catalogModel.latestTemplateVersion}`
+                      : 'no connector template'}
+                  </Text>
+                  {catalogModel.description ? (
+                    <Text style={styles.catalogDescription}>{catalogModel.description}</Text>
+                  ) : (
+                    <Text style={styles.helperText}>
+                      No model description is configured in the catalog yet.
+                    </Text>
+                  )}
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.emptyText}>
+                This station points to a catalog entry that could not be resolved from current config data.
+              </Text>
+            )}
+          </AppCard>
 
           <AppCard>
             <Text style={styles.cardTitle}>Overview</Text>
@@ -619,12 +824,16 @@ export default function StationDetailScreen(): React.JSX.Element {
               value={STATION_STATUS_LABELS[getStationDisplayStatus(station.status, station.isArchived)]}
             />
             <FieldRow label="QR Code" value={station.qrCode} />
-            <FieldRow label="Brand" value={station.brand} />
-            <FieldRow label="Model" value={station.model} />
+            <FieldRow label="Catalog Brand" value={catalogBrand?.name ?? station.brand} />
+            <FieldRow label="Catalog Model" value={catalogModel?.name ?? station.model} />
+            <FieldRow
+              label="Model Template Version"
+              value={station.modelTemplateVersion ? `v${station.modelTemplateVersion}` : 'Manual / not applied'}
+            />
             <FieldRow label="Serial Number" value={station.serialNumber} />
-            <FieldRow label="Power" value={`${station.powerKw} kW`} />
-            <FieldRow label="Current Type" value={station.currentType} />
-            <FieldRow label="Socket Type" value={station.socketType} />
+            <FieldRow label="Derived Max Power" value={`${station.powerKw} kW`} />
+            <FieldRow label="Derived Current Type" value={station.currentType} />
+            <FieldRow label="Derived Socket Types" value={station.socketType} />
             <FieldRow label="Location" value={station.location} />
             <FieldRow label="Last Test Date" value={formatDateShort(station.lastTestDate)} />
             <FieldRow label="Archived At" value={formatDateTime(station.archivedAt)} />
@@ -635,21 +844,84 @@ export default function StationDetailScreen(): React.JSX.Element {
             {canWriteRecords ? (
               <>
                 <View style={styles.sectionDivider} />
-                <AppButton
-                  label={station.isArchived ? 'Archived Station' : 'Edit Station'}
-                  onPress={() =>
-                    router.push({ pathname: '/stations/edit', params: { stationId: station.id } })
-                  }
-                  variant="secondary"
-                  disabled={station.isArchived}
-                />
+                <View style={styles.overviewActions}>
+                  <AppButton
+                    label={station.isArchived ? 'Archived Station' : 'Edit Station'}
+                    onPress={() =>
+                      router.push({ pathname: '/stations/edit', params: { stationId: station.id } })
+                    }
+                    variant="secondary"
+                    disabled={station.isArchived}
+                  />
+                  <AppButton
+                    label={applyingTemplate ? 'Applying Template...' : 'Apply Model Template'}
+                    onPress={confirmApplyTemplate}
+                    variant="secondary"
+                    disabled={
+                      station.isArchived ||
+                      applyingTemplate ||
+                      !catalogModel ||
+                      catalogModel.latestTemplateConnectors.length === 0
+                    }
+                  />
+                </View>
                 {station.isArchived ? (
                   <Text style={styles.helperText}>
                     Archived stations are read-only and cannot be edited from mobile.
                   </Text>
-                ) : null}
+                ) : (
+                  <Text style={styles.helperText}>
+                    Changing brand or model does not overwrite connectors automatically. Use Apply
+                    Model Template when you want to replace the current connector layout.
+                  </Text>
+                )}
               </>
             ) : null}
+          </AppCard>
+
+          <AppCard>
+            <Text style={styles.cardTitle}>Connectors</Text>
+            <View style={styles.summaryRow}>
+              <InfoPill
+                label={`${station.connectorSummary.count} connector${station.connectorSummary.count === 1 ? '' : 's'}`}
+                color={colors.primary}
+              />
+              <InfoPill
+                label={formatConnectorCapability(station)}
+                color={station.connectorSummary.hasDC ? '#1E88E5' : '#0F9D58'}
+              />
+              <InfoPill
+                label={`Max ${station.connectorSummary.maxPowerKw} kW`}
+                color="#FB8C00"
+              />
+              {station.modelTemplateVersion ? (
+                <InfoPill label={`Template v${station.modelTemplateVersion}`} color="#6E41C3" />
+              ) : null}
+            </View>
+            <FieldRow
+              label="Connector Types"
+              value={station.connectorSummary.types.length > 0 ? station.connectorSummary.types.join(', ') : '-'}
+            />
+
+            {connectorItems.length === 0 ? (
+              <Text style={styles.emptyText}>No connector rows are available for this station yet.</Text>
+            ) : (
+              connectorItems.map((connector) => (
+                <View key={connector.id} style={styles.connectorCard}>
+                  <View style={styles.connectorHeader}>
+                    <Text style={styles.connectorTitle}>Connector #{connector.connectorNo}</Text>
+                    <InfoPill
+                      label={connector.isActive ? 'Active' : 'Inactive'}
+                      color={connector.isActive ? '#0F9D58' : '#5F6368'}
+                    />
+                  </View>
+                  <Text style={styles.connectorMeta}>
+                    {connector.connectorType} • {connector.currentType} • {connector.powerKw} kW
+                  </Text>
+                  <Text style={styles.connectorMeta}>Order: {connector.sortOrder}</Text>
+                </View>
+              ))
+            )}
           </AppCard>
 
           <AppCard>
@@ -968,6 +1240,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 2,
   },
+  overviewActions: {
+    gap: 10,
+  },
   fieldRow: {
     gap: 2,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -982,6 +1257,66 @@ const styles = StyleSheet.create({
   fieldValue: {
     fontSize: 14,
     color: colors.text,
+  },
+  catalogBlock: {
+    gap: 12,
+  },
+  catalogImageFrame: {
+    width: '100%',
+    minHeight: 180,
+    maxHeight: 320,
+    borderRadius: 12,
+    backgroundColor: '#E9EEF5',
+    padding: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  catalogImage: {
+    width: '100%',
+    height: 180,
+  },
+  catalogTextBlock: {
+    gap: 6,
+  },
+  catalogTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  catalogMeta: {
+    color: colors.mutedText,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  catalogDescription: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  connectorCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: 10,
+    gap: 4,
+    backgroundColor: colors.surface,
+  },
+  connectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  connectorTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  connectorMeta: {
+    color: colors.mutedText,
+    fontSize: 12,
+    lineHeight: 18,
   },
   emptyText: {
     color: colors.mutedText,

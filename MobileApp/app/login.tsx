@@ -2,9 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  KeyboardAvoidingView,
+  Image,
   Linking,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -14,10 +13,9 @@ import {
 import { AppButton, AppCard, AppScreen, AppTextInput, colors } from '@/components';
 import { useAuth } from '@/features/auth';
 import { getApiErrorMessage, isApiError } from '@/lib/api/errors';
+import { getAppDisplayName, getAppSupportEmail } from '@/src/lib/app-meta';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const SUPPORT_EMAIL =
-  process.env.EXPO_PUBLIC_SUPPORT_EMAIL?.trim() || 'evcdv@vestel.com.tr';
 
 type FormErrors = {
   email?: string;
@@ -36,6 +34,8 @@ const formatRetryAfterLabel = (retryAfterSeconds: number): string => {
 export default function LoginScreen(): React.JSX.Element {
   const router = useRouter();
   const { signIn } = useAuth();
+  const appDisplayName = getAppDisplayName();
+  const supportEmail = getAppSupportEmail();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -45,7 +45,7 @@ export default function LoginScreen(): React.JSX.Element {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
 
   const handleSupportPress = (): void => {
-    void Linking.openURL(`mailto:${SUPPORT_EMAIL}`);
+    void Linking.openURL(`mailto:${supportEmail}`);
   };
 
   const handleSubmit = async (): Promise<void> => {
@@ -109,121 +109,120 @@ export default function LoginScreen(): React.JSX.Element {
   };
 
   return (
-    <AppScreen contentContainerStyle={styles.content}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardContainer}
-      >
-        <View style={styles.shell}>
-          <View style={styles.topGlow} />
-          <View style={styles.bottomGlow} />
+    <AppScreen contentContainerStyle={styles.content} keyboardAvoiding>
+      <View style={styles.shell}>
+        <View style={styles.topGlow} />
+        <View style={styles.bottomGlow} />
 
-          <AppCard style={styles.formCard}>
-            <View style={styles.formHeader}>
-              <Text style={styles.formEyebrow}>Welcome Back</Text>
-              <Text style={styles.formTitle}>Sign In To Continue</Text>
-              <Text style={styles.formSubtitle}>
-                Use your assigned account. The app restores your session on this device and lets
-                you retry safely if the network is unavailable.
-              </Text>
-            </View>
-
-            {errorMessage ? (
-              <View style={styles.errorBanner}>
-                <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
-                <Text style={styles.errorBannerText}>{errorMessage}</Text>
-              </View>
-            ) : null}
-
-            <AppTextInput
-              label="Work Email"
-              value={email}
-              onChangeText={(value) => {
-                setEmail(value);
-                setErrorMessage('');
-                if (formErrors.email) {
-                  setFormErrors((prev) => ({ ...prev, email: undefined }));
-                }
-              }}
-              placeholder="name@company.com"
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              autoComplete="email"
-              textContentType="emailAddress"
-              returnKeyType="next"
-              error={formErrors.email}
-              required
+        <AppCard style={styles.formCard}>
+          <View style={styles.formHeader}>
+            <Image
+              source={require('../assets/images/brand-wordmark.png')}
+              style={styles.brandWordmark}
+              resizeMode="contain"
             />
+            <Text style={styles.formEyebrow}>{appDisplayName}</Text>
+            <Text style={styles.formSubtitle}>
+              Sign in with your assigned account. Sessions are restored on this device and temporary
+              network failures can be retried safely.
+            </Text>
+          </View>
 
-            <AppTextInput
-              label="Password"
-              value={password}
-              onChangeText={(value) => {
-                setPassword(value);
-                setErrorMessage('');
-                if (formErrors.password) {
-                  setFormErrors((prev) => ({ ...prev, password: undefined }));
-                }
-              }}
-              placeholder="Enter your password"
-              secureTextEntry={!showPassword}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="password"
-              textContentType="password"
-              returnKeyType="go"
-              onSubmitEditing={() => {
-                void handleSubmit();
-              }}
-              error={formErrors.password}
-              required
-              rightAccessory={
-                <Pressable
-                  onPress={() => setShowPassword((prev) => !prev)}
-                  style={({ pressed }) => [styles.passwordToggle, pressed && styles.pressed]}
-                >
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={18}
-                    color={colors.mutedText}
-                  />
-                  <Text style={styles.passwordToggleText}>
-                    {showPassword ? 'Hide' : 'Show'}
-                  </Text>
-                </Pressable>
+          {errorMessage ? (
+            <View style={styles.errorBanner}>
+              <Ionicons name="alert-circle-outline" size={16} color={colors.danger} />
+              <Text style={styles.errorBannerText}>{errorMessage}</Text>
+            </View>
+          ) : null}
+
+          <AppTextInput
+            label="Work Email"
+            value={email}
+            onChangeText={(value) => {
+              setEmail(value);
+              setErrorMessage('');
+              if (formErrors.email) {
+                setFormErrors((prev) => ({ ...prev, email: undefined }));
               }
-            />
+            }}
+            placeholder="name@company.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="next"
+            error={formErrors.email}
+            required
+          />
 
-            <View style={styles.sessionNote}>
-              <Ionicons name="lock-closed-outline" size={15} color={colors.primary} />
-              <Text style={styles.sessionNoteText}>
-                Tokens are stored securely on device. Expired sessions are cleared automatically,
-                and temporary connection failures can be retried.
-              </Text>
-            </View>
+          <AppTextInput
+            label="Password"
+            value={password}
+            onChangeText={(value) => {
+              setPassword(value);
+              setErrorMessage('');
+              if (formErrors.password) {
+                setFormErrors((prev) => ({ ...prev, password: undefined }));
+              }
+            }}
+            placeholder="Enter your password"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="password"
+            textContentType="password"
+            returnKeyType="go"
+            onSubmitEditing={() => {
+              void handleSubmit();
+            }}
+            error={formErrors.password}
+            required
+            rightAccessory={
+              <Pressable
+                onPress={() => setShowPassword((prev) => !prev)}
+                style={({ pressed }) => [styles.passwordToggle, pressed && styles.pressed]}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={18}
+                  color={colors.mutedText}
+                />
+                <Text style={styles.passwordToggleText}>
+                  {showPassword ? 'Hide' : 'Show'}
+                </Text>
+              </Pressable>
+            }
+          />
 
-            <AppButton
-              label={submitting ? 'Signing In...' : 'Sign In'}
-              onPress={() => {
-                void handleSubmit();
-              }}
-              disabled={submitting}
-              style={styles.submitButton}
-            />
+          <View style={styles.sessionNote}>
+            <Ionicons name="lock-closed-outline" size={15} color={colors.primary} />
+            <Text style={styles.sessionNoteText}>
+              Tokens are stored securely on device. Expired sessions are cleared automatically, and
+              temporary connection failures can be retried.
+            </Text>
+          </View>
 
-            <View style={styles.footerNote}>
+          <AppButton
+            label={submitting ? 'Signing In...' : 'Sign In'}
+            onPress={() => {
+              void handleSubmit();
+            }}
+            disabled={submitting}
+            style={styles.submitButton}
+          />
+
+          <View style={styles.footerNote}>
               <Text style={styles.footerNoteText}>
                 For problems or other questions, you can reach{' '}
                 <Text style={styles.footerNoteLink} onPress={handleSupportPress}>
-                  {SUPPORT_EMAIL}
+                  {supportEmail}
                 </Text>
                 .
               </Text>
-            </View>
-          </AppCard>
-        </View>
-      </KeyboardAvoidingView>
+          </View>
+        </AppCard>
+      </View>
     </AppScreen>
   );
 }
@@ -232,10 +231,6 @@ const styles = StyleSheet.create({
   content: {
     justifyContent: 'center',
     paddingVertical: 20,
-  },
-  keyboardContainer: {
-    flex: 1,
-    justifyContent: 'center',
   },
   shell: {
     position: 'relative',
@@ -249,7 +244,7 @@ const styles = StyleSheet.create({
     width: 180,
     height: 180,
     borderRadius: 999,
-    backgroundColor: '#DDEBFF',
+    backgroundColor: '#FFE4EA',
   },
   bottomGlow: {
     position: 'absolute',
@@ -258,7 +253,7 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 999,
-    backgroundColor: '#EEF5FF',
+    backgroundColor: '#FFF2F4',
   },
   formCard: {
     gap: 16,
@@ -267,19 +262,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   formHeader: {
-    gap: 4,
+    gap: 10,
+  },
+  brandWordmark: {
+    width: '100%',
+    height: 84,
+    alignSelf: 'center',
   },
   formEyebrow: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  formTitle: {
     color: colors.text,
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   formSubtitle: {
     color: colors.mutedText,

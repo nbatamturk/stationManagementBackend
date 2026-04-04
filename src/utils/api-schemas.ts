@@ -1,5 +1,8 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 
+export const UUID_PATTERN_SOURCE = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+export const UUID_PATTERN = new RegExp(UUID_PATTERN_SOURCE, 'i');
+
 export type CommonErrorStatusCode = 400 | 401 | 403 | 404 | 409 | 413 | 415 | 429 | 500;
 
 type SchemaOptions = {
@@ -14,7 +17,7 @@ type ErrorExample = {
 };
 
 export const uuidSchema = Type.String({
-  format: 'uuid',
+  pattern: UUID_PATTERN_SOURCE,
   description: 'UUID identifier.',
 });
 

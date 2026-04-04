@@ -1,6 +1,6 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import {
   AppButton,
@@ -14,40 +14,52 @@ import {
 } from '@/components';
 import { useAuth } from '@/features/auth';
 import { getCustomFieldDefinitions } from '@/features/custom-fields';
-import { getStationByIdForForm, upsertStation } from '@/features/stations';
+import {
+  applyStationModelTemplate,
+  getStationByIdForForm,
+  getStationConfig,
+  upsertStation,
+} from '@/features/stations';
+import { connectorTypeOptions, createEmptyConnectorFormValue, currentTypeOptions, deriveConnectorFields, getNextConnectorNumber, toConnectorFormValue } from '@/features/stations/helpers';
+import type { StationFormRecord } from '@/features/stations';
+import { isApiError } from '@/lib/api/errors';
 import type {
   CustomFieldDefinition,
+  StationCatalogBrand,
+  StationCatalogModel,
+  StationConfig,
+  StationConnectorFormValue,
   StationCustomValuesByFieldId,
   StationDraft,
   StationFormValues,
 } from '@/types';
-import type { StationFormRecord } from '@/features/stations';
 import { isValidDateOnly, isoToDateOnly } from '@/utils/date';
 import { parseSelectOptions } from '@/utils/custom-field';
-import {
-  STATION_STATUS_LABELS,
-  currentTypeOptions,
-  stationEditableStatusOptions,
-  stationSocketTypeOptions,
-} from '@/utils/station';
-import { isApiError } from '@/lib/api/errors';
+import { STATION_STATUS_LABELS, getStationDisplayStatus } from '@/utils/station';
 
-type FormErrors = Partial<Record<keyof StationFormValues, string>>;
+type FormErrors = Partial<Record<Exclude<keyof StationFormValues, 'connectors'>, string>> & {
+  connectors?: string;
+};
+
+type ConnectorFieldError = {
+  connectorNo?: string;
+  powerKw?: string;
+};
+
+const stationEditableStatusOptions = ['active', 'maintenance', 'inactive', 'faulty'] as const;
 
 const createDefaultFormValues = (prefilledQrCode = ''): StationFormValues => ({
   name: '',
   code: '',
   qrCode: prefilledQrCode.trim(),
-  brand: '',
-  model: '',
+  brandId: '',
+  modelId: '',
   serialNumber: '',
-  powerKw: '',
-  currentType: 'AC',
-  socketType: 'Type2',
   location: '',
   status: 'active',
   lastTestDate: '',
   notes: '',
+  connectors: [],
 });
 
 const createCustomValueMap = (
@@ -67,24 +79,14 @@ const mapStationToFormValues = (station: StationFormRecord): StationFormValues =
   name: station.name,
   code: station.code,
   qrCode: station.qrCode,
-  brand: station.brand,
-  model: station.model,
+  brandId: station.brandId,
+  modelId: station.modelId,
   serialNumber: station.serialNumber,
-  powerKw: String(station.powerKw),
-  currentType: station.currentType,
-  socketType: stationSocketTypeOptions.includes(station.socketType as (typeof stationSocketTypeOptions)[number])
-    ? (station.socketType as (typeof stationSocketTypeOptions)[number])
-    : 'Type2',
   location: station.location,
-  status:
-    station.status === 'active' ||
-    station.status === 'maintenance' ||
-    station.status === 'inactive' ||
-    station.status === 'faulty'
-      ? station.status
-      : 'inactive',
+  status: station.status,
   lastTestDate: isoToDateOnly(station.lastTestDate),
   notes: station.notes ?? '',
+  connectors: (station.connectors ?? []).map((connector) => toConnectorFormValue(connector)),
 });
 
 const validateForm = (
@@ -92,11 +94,13 @@ const validateForm = (
   definitions: CustomFieldDefinition[],
   customValues: StationCustomValuesByFieldId,
 ): {
+  connectorErrors: ConnectorFieldError[];
   customFieldErrors: Record<string, string>;
   formErrors: FormErrors;
 } => {
   const formErrors: FormErrors = {};
   const customFieldErrors: Record<string, string> = {};
+  const connectorErrors: ConnectorFieldError[] = [];
 
   if (formValues.name.trim().length < 2) {
     formErrors.name = 'Station name must be at least 2 characters.';
@@ -110,12 +114,12 @@ const validateForm = (
     formErrors.qrCode = 'QR code must be at least 2 characters.';
   }
 
-  if (formValues.brand.trim().length < 1) {
-    formErrors.brand = 'Brand is required.';
+  if (!formValues.brandId) {
+    formErrors.brandId = 'Brand selection is required.';
   }
 
-  if (formValues.model.trim().length < 1) {
-    formErrors.model = 'Model is required.';
+  if (!formValues.modelId) {
+    formErrors.modelId = 'Model selection is required.';
   }
 
   if (formValues.serialNumber.trim().length < 2) {
@@ -126,15 +130,6 @@ const validateForm = (
     formErrors.location = 'Location must be at least 2 characters.';
   }
 
-  const parsedPowerKw = Number(formValues.powerKw.trim());
-  if (!formValues.powerKw.trim()) {
-    formErrors.powerKw = 'Power (kW) is required.';
-  } else if (Number.isNaN(parsedPowerKw) || !Number.isFinite(parsedPowerKw)) {
-    formErrors.powerKw = 'Power (kW) must be a valid number.';
-  } else if (parsedPowerKw < 0 || parsedPowerKw > 1000) {
-    formErrors.powerKw = 'Power (kW) must be between 0 and 1000.';
-  }
-
   if (formValues.lastTestDate.trim() && !isValidDateOnly(formValues.lastTestDate.trim())) {
     formErrors.lastTestDate = 'Use YYYY-MM-DD format.';
   }
@@ -142,6 +137,36 @@ const validateForm = (
   if (formValues.notes.trim().length > 2000) {
     formErrors.notes = 'Notes must be 2000 characters or fewer.';
   }
+
+  if (formValues.connectors.length === 0) {
+    formErrors.connectors = 'At least one connector is required.';
+  }
+
+  const usedConnectorNumbers = new Set<number>();
+
+  formValues.connectors.forEach((connector, index) => {
+    const fieldError: ConnectorFieldError = {};
+    const connectorNo = Number(connector.connectorNo.trim());
+    const powerKw = Number(connector.powerKw.trim());
+
+    if (!Number.isInteger(connectorNo) || connectorNo < 1) {
+      fieldError.connectorNo = 'Connector number must be at least 1.';
+    } else if (usedConnectorNumbers.has(connectorNo)) {
+      fieldError.connectorNo = `Connector number ${connectorNo} is duplicated.`;
+    } else {
+      usedConnectorNumbers.add(connectorNo);
+    }
+
+    if (!connector.powerKw.trim()) {
+      fieldError.powerKw = 'Power is required.';
+    } else if (Number.isNaN(powerKw) || !Number.isFinite(powerKw)) {
+      fieldError.powerKw = 'Power must be a valid number.';
+    } else if (powerKw <= 0 || powerKw > 1000) {
+      fieldError.powerKw = 'Power must be between 0 and 1000.';
+    }
+
+    connectorErrors[index] = fieldError;
+  });
 
   for (const definition of definitions) {
     const value = customValues[definition.id] ?? '';
@@ -196,10 +221,27 @@ const validateForm = (
   }
 
   return {
+    connectorErrors,
     customFieldErrors,
     formErrors,
   };
 };
+
+const formatModelChipLabel = (model: StationCatalogModel) => `${model.name}${model.isActive ? '' : ' (Inactive)'}`;
+const formatBrandChipLabel = (brand: StationCatalogBrand) => `${brand.name}${brand.isActive ? '' : ' (Inactive)'}`;
+
+const ReadOnlyValue = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}): React.JSX.Element => (
+  <View style={styles.readOnlyValue}>
+    <Text style={styles.readOnlyLabel}>{label}</Text>
+    <Text style={styles.readOnlyText}>{value || 'Not derived yet'}</Text>
+  </View>
+);
 
 export default function AddEditStationScreen(): React.JSX.Element {
   const router = useRouter();
@@ -213,23 +255,61 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [station, setStation] = useState<StationFormRecord | null>(null);
+  const [stationConfig, setStationConfig] = useState<StationConfig | null>(null);
   const [customDefinitions, setCustomDefinitions] = useState<CustomFieldDefinition[]>([]);
   const [formValues, setFormValues] = useState<StationFormValues>(createDefaultFormValues(prefilledQrCode));
   const [customValues, setCustomValues] = useState<StationCustomValuesByFieldId>({});
   const [formErrors, setFormErrors] = useState<FormErrors>({});
+  const [connectorErrors, setConnectorErrors] = useState<ConnectorFieldError[]>([]);
   const [customFieldErrors, setCustomFieldErrors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState('');
   const [submitError, setSubmitError] = useState('');
 
   const formTitle = isEditMode ? 'Edit Station' : 'Create Station';
   const formSubtitle = isEditMode
-    ? 'Update this backend station record with clear, field-ready details.'
-    : 'Create a new station directly in backend records.';
+    ? 'Update the backend station record, catalog mapping, and connector setup in one field-ready form.'
+    : 'Create a new backend station using the station catalog and connector source of truth.';
 
   const customDefinitionMap = useMemo(
     () => new Map(customDefinitions.map((definition) => [definition.key, definition.id])),
     [customDefinitions],
+  );
+  const selectedBrand = useMemo(
+    () => stationConfig?.brands.find((brand) => brand.id === formValues.brandId) ?? null,
+    [formValues.brandId, stationConfig?.brands],
+  );
+  const selectedModel = useMemo(
+    () => stationConfig?.models.find((model) => model.id === formValues.modelId) ?? null,
+    [formValues.modelId, stationConfig?.models],
+  );
+  const selectableBrands = useMemo(() => {
+    const brands = stationConfig?.brands ?? [];
+    return brands
+      .filter((brand) => brand.isActive || brand.id === formValues.brandId)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [formValues.brandId, stationConfig?.brands]);
+  const selectableModels = useMemo(() => {
+    const models = stationConfig?.models ?? [];
+    return models
+      .filter((model) => model.brandId === formValues.brandId)
+      .filter((model) => model.isActive || model.id === formValues.modelId)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [formValues.brandId, formValues.modelId, stationConfig?.models]);
+  const derivedFields = useMemo(
+    () =>
+      deriveConnectorFields(
+        formValues.connectors.map((connector, index) => ({
+          connectorNo: Number(connector.connectorNo.trim()),
+          connectorType: connector.connectorType,
+          currentType: connector.currentType,
+          powerKw: Number(connector.powerKw.trim()),
+          isActive: connector.isActive,
+          sortOrder: index + 1,
+        })),
+      ),
+    [formValues.connectors],
   );
 
   const loadForm = useCallback(async () => {
@@ -242,11 +322,18 @@ export default function AddEditStationScreen(): React.JSX.Element {
     setLoadError('');
     setSubmitError('');
     setFormErrors({});
+    setConnectorErrors([]);
     setCustomFieldErrors({});
 
     try {
-      const definitions = await getCustomFieldDefinitions(true);
+      const [definitions, config, stationResult] = await Promise.all([
+        getCustomFieldDefinitions(true),
+        getStationConfig(),
+        isEditMode ? getStationByIdForForm(stationId) : Promise.resolve(null),
+      ]);
+
       setCustomDefinitions(definitions);
+      setStationConfig(config);
 
       if (!isEditMode) {
         setStation(null);
@@ -254,8 +341,6 @@ export default function AddEditStationScreen(): React.JSX.Element {
         setCustomValues(createCustomValueMap(definitions));
         return;
       }
-
-      const stationResult = await getStationByIdForForm(stationId);
 
       if (!stationResult) {
         setStation(null);
@@ -269,6 +354,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
       setCustomValues(createCustomValueMap(definitions, stationResult.customValuesByFieldId));
     } catch (error) {
       setStation(null);
+      setStationConfig(null);
       setCustomDefinitions([]);
       setCustomValues({});
       setLoadError(
@@ -287,7 +373,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
     }, [loadForm]),
   );
 
-  const handleFieldChange = <T extends keyof StationFormValues>(
+  const handleFieldChange = <T extends Exclude<keyof StationFormValues, 'connectors'>>(
     field: T,
     value: StationFormValues[T],
   ): void => {
@@ -303,6 +389,102 @@ export default function AddEditStationScreen(): React.JSX.Element {
         [field]: undefined,
       }));
     }
+  };
+
+  const handleBrandSelect = (brandId: string): void => {
+    setFormValues((prev) => ({
+      ...prev,
+      brandId,
+      modelId: prev.brandId === brandId ? prev.modelId : '',
+    }));
+    setSubmitError('');
+    setFormErrors((prev) => ({
+      ...prev,
+      brandId: undefined,
+      modelId: undefined,
+    }));
+  };
+
+  const handleModelSelect = (modelId: string): void => {
+    const nextModel = stationConfig?.models.find((model) => model.id === modelId) ?? null;
+
+    setFormValues((prev) => ({
+      ...prev,
+      modelId,
+      connectors:
+        prev.connectors.length === 0 && nextModel?.latestTemplateConnectors.length
+          ? nextModel.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector))
+          : prev.connectors,
+    }));
+    setSubmitError('');
+    setFormErrors((prev) => ({
+      ...prev,
+      modelId: undefined,
+    }));
+  };
+
+  const handleConnectorChange = (
+    index: number,
+    patch: Partial<StationConnectorFormValue>,
+  ): void => {
+    setFormValues((prev) => ({
+      ...prev,
+      connectors: prev.connectors.map((connector, connectorIndex) =>
+        connectorIndex === index ? { ...connector, ...patch } : connector,
+      ),
+    }));
+    setSubmitError('');
+    setFormErrors((prev) => ({
+      ...prev,
+      connectors: undefined,
+    }));
+
+    if (connectorErrors[index]) {
+      setConnectorErrors((prev) =>
+        prev.map((error, errorIndex) => (errorIndex === index ? {} : error)),
+      );
+    }
+  };
+
+  const handleAddConnector = (): void => {
+    setFormValues((prev) => ({
+      ...prev,
+      connectors: [...prev.connectors, createEmptyConnectorFormValue(getNextConnectorNumber(prev.connectors))],
+    }));
+    setFormErrors((prev) => ({
+      ...prev,
+      connectors: undefined,
+    }));
+  };
+
+  const handleRemoveConnector = (index: number): void => {
+    setFormValues((prev) => ({
+      ...prev,
+      connectors: prev.connectors.filter((_, connectorIndex) => connectorIndex !== index),
+    }));
+    setConnectorErrors((prev) => prev.filter((_, connectorIndex) => connectorIndex !== index));
+    setSubmitError('');
+  };
+
+  const moveConnector = (index: number, direction: -1 | 1): void => {
+    setFormValues((prev) => {
+      const nextIndex = index + direction;
+
+      if (nextIndex < 0 || nextIndex >= prev.connectors.length) {
+        return prev;
+      }
+
+      const nextConnectors = [...prev.connectors];
+      const [moved] = nextConnectors.splice(index, 1);
+
+      nextConnectors.splice(nextIndex, 0, moved!);
+
+      return {
+        ...prev,
+        connectors: nextConnectors,
+      };
+    });
+    setSubmitError('');
   };
 
   const handleCustomValueChange = (fieldId: string, value: string): void => {
@@ -330,6 +512,45 @@ export default function AddEditStationScreen(): React.JSX.Element {
     router.replace('/stations');
   };
 
+  const handleApplyTemplate = (): void => {
+    if (!station || applyingTemplate) {
+      return;
+    }
+
+    Alert.alert(
+      'Apply Model Template',
+      'Replace the current station connectors with the latest template from the selected model?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Apply Template',
+          onPress: () => {
+            void (async () => {
+              setApplyingTemplate(true);
+              setSubmitError('');
+
+              try {
+                await applyStationModelTemplate(station.id);
+                await loadForm();
+              } catch (error) {
+                setSubmitError(
+                  error instanceof Error
+                    ? `Could not apply model template: ${error.message}`
+                    : 'Could not apply model template.',
+                );
+              } finally {
+                setApplyingTemplate(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   const handleSubmit = async (): Promise<void> => {
     if (submitting) {
       return;
@@ -342,11 +563,13 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
     const validation = validateForm(formValues, customDefinitions, customValues);
     setFormErrors(validation.formErrors);
+    setConnectorErrors(validation.connectorErrors);
     setCustomFieldErrors(validation.customFieldErrors);
     setSubmitError('');
 
     if (
       Object.keys(validation.formErrors).length > 0 ||
+      Object.values(validation.connectorErrors).some((fieldError) => Object.keys(fieldError).length > 0) ||
       Object.keys(validation.customFieldErrors).length > 0
     ) {
       return;
@@ -495,8 +718,21 @@ export default function AddEditStationScreen(): React.JSX.Element {
           <View style={styles.infoBox}>
             <Text style={styles.infoTitle}>Scanned QR Prefilled</Text>
             <Text style={styles.infoText}>
-              No backend station matched this QR code. Review the details carefully before creating
-              a new backend station.
+              No backend station matched this QR code. Pick the correct catalog model before
+              creating a new station.
+            </Text>
+          </View>
+        ) : null}
+
+        {station ? (
+          <View style={styles.summaryBanner}>
+            <Text style={styles.summaryBannerTitle}>
+              {station.name} · {STATION_STATUS_LABELS[getStationDisplayStatus(station.status, station.isArchived)]}
+            </Text>
+            <Text style={styles.summaryBannerText}>
+              {station.modelTemplateVersion
+                ? `Applied template v${station.modelTemplateVersion}.`
+                : 'Current connectors were edited manually.'}
             </Text>
           </View>
         ) : null}
@@ -534,70 +770,59 @@ export default function AddEditStationScreen(): React.JSX.Element {
         />
 
         <AppTextInput
-          label="Brand"
-          required
-          value={formValues.brand}
-          onChangeText={(value) => handleFieldChange('brand', value)}
-          placeholder="Example: ABB"
-          error={formErrors.brand}
-        />
-
-        <AppTextInput
-          label="Model"
-          required
-          value={formValues.model}
-          onChangeText={(value) => handleFieldChange('model', value)}
-          placeholder="Example: Terra 184"
-          error={formErrors.model}
-        />
-
-        <AppTextInput
           label="Serial Number"
           required
           value={formValues.serialNumber}
           onChangeText={(value) => handleFieldChange('serialNumber', value)}
-          placeholder="Example: ABB-TR184-9001"
+          placeholder="Example: VST-EVC06-0009"
           autoCapitalize="none"
           error={formErrors.serialNumber}
         />
 
-        <AppTextInput
-          label="Power (kW)"
-          required
-          value={formValues.powerKw}
-          onChangeText={(value) => handleFieldChange('powerKw', value)}
-          placeholder="Example: 180"
-          keyboardType="numeric"
-          autoCapitalize="none"
-          error={formErrors.powerKw}
-        />
-
         <View style={styles.formGroup}>
-          <Text style={styles.filterLabel}>Current Type</Text>
-          <View style={styles.inlineRow}>
-            {currentTypeOptions.map((option) => (
+          <Text style={styles.filterLabel}>Brand</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+            {selectableBrands.map((brand) => (
               <OptionChip
-                key={option}
-                label={option}
-                selected={formValues.currentType === option}
-                onPress={() => handleFieldChange('currentType', option)}
+                key={brand.id}
+                label={formatBrandChipLabel(brand)}
+                selected={formValues.brandId === brand.id}
+                onPress={() => handleBrandSelect(brand.id)}
               />
             ))}
-          </View>
+          </ScrollView>
+          {selectedBrand ? (
+            <Text style={styles.helperText}>Selected brand: {selectedBrand.name}</Text>
+          ) : (
+            <Text style={styles.helperText}>Choose a catalog brand before picking the model.</Text>
+          )}
+          {formErrors.brandId ? <Text style={styles.errorText}>{formErrors.brandId}</Text> : null}
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.filterLabel}>Socket Type</Text>
-          <View style={styles.inlineRow}>
-            {stationSocketTypeOptions.map((option) => (
-              <OptionChip
-                key={option}
-                label={option}
-                selected={formValues.socketType === option}
-                onPress={() => handleFieldChange('socketType', option)}
-              />
-            ))}
-          </View>
+          <Text style={styles.filterLabel}>Model</Text>
+          {formValues.brandId ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+              {selectableModels.map((model) => (
+                <OptionChip
+                  key={model.id}
+                  label={formatModelChipLabel(model)}
+                  selected={formValues.modelId === model.id}
+                  onPress={() => handleModelSelect(model.id)}
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.helperText}>Select a brand first.</Text>
+          )}
+          {selectedModel ? (
+            <Text style={styles.helperText}>
+              {selectedModel.latestTemplateConnectors.length > 0
+                ? `Latest template has ${selectedModel.latestTemplateConnectors.length} connector${selectedModel.latestTemplateConnectors.length === 1 ? '' : 's'}.`
+                : 'This model has no connector template yet.'}
+            </Text>
+          ) : null}
+          {formErrors.modelId ? <Text style={styles.errorText}>{formErrors.modelId}</Text> : null}
         </View>
 
         <View style={styles.formGroup}>
@@ -640,6 +865,155 @@ export default function AddEditStationScreen(): React.JSX.Element {
           multiline
           error={formErrors.notes}
         />
+      </AppCard>
+
+      <AppCard style={styles.card}>
+        <View style={styles.sectionHeaderRow}>
+          <View style={styles.sectionHeaderText}>
+            <Text style={styles.sectionTitle}>Derived Electrical Summary</Text>
+            <Text style={styles.sectionSubtitle}>
+              These top-level values are derived from the connector list and are read-only on mobile.
+            </Text>
+          </View>
+          {isEditMode && station ? (
+            <AppButton
+              label={applyingTemplate ? 'Applying...' : 'Apply Model Template'}
+              variant="secondary"
+              onPress={handleApplyTemplate}
+              disabled={applyingTemplate || !selectedModel}
+            />
+          ) : null}
+        </View>
+        <ReadOnlyValue label="Connector Count" value={`${derivedFields.summary.count}`} />
+        <ReadOnlyValue label="Derived Current Type" value={derivedFields.currentType ?? ''} />
+        <ReadOnlyValue
+          label="Derived Socket Types"
+          value={derivedFields.socketType || 'No connector types yet'}
+        />
+        <ReadOnlyValue
+          label="Derived Max Power"
+          value={derivedFields.powerKw ? `${derivedFields.powerKw} kW` : ''}
+        />
+      </AppCard>
+
+      <AppCard style={styles.card}>
+        <View style={styles.sectionHeaderRow}>
+          <View style={styles.sectionHeaderText}>
+            <Text style={styles.sectionTitle}>Connectors</Text>
+            <Text style={styles.sectionSubtitle}>
+              Connector rows are the writable source of truth for this station.
+            </Text>
+          </View>
+          <AppButton label="Add Connector" variant="secondary" onPress={handleAddConnector} />
+        </View>
+
+        {formErrors.connectors ? <Text style={styles.errorText}>{formErrors.connectors}</Text> : null}
+
+        {formValues.connectors.length === 0 ? (
+          <Text style={styles.helperText}>
+            No connectors added yet. Select a model to seed from its template or add a connector manually.
+          </Text>
+        ) : (
+          formValues.connectors.map((connector, index) => (
+            <View key={`${index}-${connector.connectorNo}`} style={styles.connectorCard}>
+              <View style={styles.connectorHeader}>
+                <Text style={styles.connectorTitle}>Connector {index + 1}</Text>
+                <View style={styles.connectorActions}>
+                  <Pressable
+                    onPress={() => moveConnector(index, -1)}
+                    disabled={index === 0}
+                    style={({ pressed }) => [
+                      styles.connectorAction,
+                      index === 0 && styles.connectorActionDisabled,
+                      pressed && index !== 0 && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.connectorActionText}>Up</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => moveConnector(index, 1)}
+                    disabled={index === formValues.connectors.length - 1}
+                    style={({ pressed }) => [
+                      styles.connectorAction,
+                      index === formValues.connectors.length - 1 && styles.connectorActionDisabled,
+                      pressed && index !== formValues.connectors.length - 1 && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.connectorActionText}>Down</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => handleRemoveConnector(index)}
+                    style={({ pressed }) => [styles.connectorActionDanger, pressed && styles.pressed]}
+                  >
+                    <Text style={styles.connectorActionDangerText}>Remove</Text>
+                  </Pressable>
+                </View>
+              </View>
+
+              <AppTextInput
+                label="Connector Number"
+                value={connector.connectorNo}
+                onChangeText={(value) => handleConnectorChange(index, { connectorNo: value })}
+                keyboardType="numeric"
+                autoCapitalize="none"
+                error={connectorErrors[index]?.connectorNo}
+              />
+
+              <AppTextInput
+                label="Power (kW)"
+                value={connector.powerKw}
+                onChangeText={(value) => handleConnectorChange(index, { powerKw: value })}
+                keyboardType="numeric"
+                autoCapitalize="none"
+                error={connectorErrors[index]?.powerKw}
+              />
+
+              <View style={styles.connectorOptionGroup}>
+                <Text style={styles.filterLabel}>Connector Type</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                  {connectorTypeOptions.map((option) => (
+                    <OptionChip
+                      key={option}
+                      label={option}
+                      selected={connector.connectorType === option}
+                      onPress={() => handleConnectorChange(index, { connectorType: option })}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+
+              <View style={styles.connectorOptionGroup}>
+                <Text style={styles.filterLabel}>Current Type</Text>
+                <View style={styles.inlineRow}>
+                  {currentTypeOptions.map((option) => (
+                    <OptionChip
+                      key={option}
+                      label={option}
+                      selected={connector.currentType === option}
+                      onPress={() => handleConnectorChange(index, { currentType: option })}
+                    />
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.connectorOptionGroup}>
+                <Text style={styles.filterLabel}>State</Text>
+                <View style={styles.inlineRow}>
+                  <OptionChip
+                    label="Active"
+                    selected={connector.isActive}
+                    onPress={() => handleConnectorChange(index, { isActive: true })}
+                  />
+                  <OptionChip
+                    label="Inactive"
+                    selected={!connector.isActive}
+                    onPress={() => handleConnectorChange(index, { isActive: false })}
+                  />
+                </View>
+              </View>
+            </View>
+          ))
+        )}
       </AppCard>
 
       {customDefinitions.length > 0 ? (
@@ -692,11 +1066,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
                     {definition.isRequired ? <Text style={styles.required}> *</Text> : null}
                   </Text>
                   {options.length > 0 ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.chipRow}
-                    >
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
                       <OptionChip
                         label="Unset"
                         selected={!currentValue}
@@ -712,61 +1082,9 @@ export default function AddEditStationScreen(): React.JSX.Element {
                       ))}
                     </ScrollView>
                   ) : (
-                    <Text style={styles.helperText}>
-                      No select options are configured for this field yet.
-                    </Text>
+                    <Text style={styles.helperText}>No select options are configured for this field yet.</Text>
                   )}
                   {fieldError ? <Text style={styles.errorText}>{fieldError}</Text> : null}
-                </View>
-              );
-            }
-
-            if (definition.type === 'number') {
-              return (
-                <View key={definition.id} style={styles.customFieldBlock}>
-                  <AppTextInput
-                    label={definition.isRequired ? `${definition.label}` : definition.label}
-                    required={definition.isRequired}
-                    value={currentValue}
-                    onChangeText={(value) => handleCustomValueChange(definition.id, value)}
-                    placeholder="Enter a numeric value"
-                    keyboardType="numeric"
-                    autoCapitalize="none"
-                    error={fieldError}
-                  />
-                </View>
-              );
-            }
-
-            if (definition.type === 'date') {
-              return (
-                <View key={definition.id} style={styles.customFieldBlock}>
-                  <AppTextInput
-                    label={definition.label}
-                    required={definition.isRequired}
-                    value={currentValue}
-                    onChangeText={(value) => handleCustomValueChange(definition.id, value)}
-                    placeholder="YYYY-MM-DD"
-                    autoCapitalize="none"
-                    error={fieldError}
-                  />
-                </View>
-              );
-            }
-
-            if (definition.type === 'json') {
-              return (
-                <View key={definition.id} style={styles.customFieldBlock}>
-                  <AppTextInput
-                    label={definition.label}
-                    required={definition.isRequired}
-                    value={currentValue}
-                    onChangeText={(value) => handleCustomValueChange(definition.id, value)}
-                    placeholder='{"key":"value"}'
-                    autoCapitalize="none"
-                    multiline
-                    error={fieldError}
-                  />
                 </View>
               );
             }
@@ -778,8 +1096,16 @@ export default function AddEditStationScreen(): React.JSX.Element {
                   required={definition.isRequired}
                   value={currentValue}
                   onChangeText={(value) => handleCustomValueChange(definition.id, value)}
-                  placeholder="Enter value"
+                  placeholder={
+                    definition.type === 'date'
+                      ? 'YYYY-MM-DD'
+                      : definition.type === 'json'
+                        ? '{"key":"value"}'
+                        : 'Enter value'
+                  }
+                  keyboardType={definition.type === 'number' ? 'numeric' : undefined}
                   autoCapitalize="none"
+                  multiline={definition.type === 'json'}
                   error={fieldError}
                 />
               </View>
@@ -790,13 +1116,26 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
       <View style={styles.actionColumn}>
         <AppButton
-          label={submitting ? (isEditMode ? 'Saving Changes...' : 'Creating Station...') : isEditMode ? 'Save Changes' : 'Create Station'}
+          label={
+            submitting
+              ? isEditMode
+                ? 'Saving Changes...'
+                : 'Creating Station...'
+              : isEditMode
+                ? 'Save Changes'
+                : 'Create Station'
+          }
           onPress={() => {
             void handleSubmit();
           }}
-          disabled={submitting}
+          disabled={submitting || applyingTemplate}
         />
-        <AppButton label="Cancel" variant="secondary" onPress={handleCancel} disabled={submitting} />
+        <AppButton
+          label="Cancel"
+          variant="secondary"
+          onPress={handleCancel}
+          disabled={submitting || applyingTemplate}
+        />
       </View>
     </AppScreen>
   );
@@ -843,6 +1182,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  summaryBanner: {
+    borderRadius: 12,
+    backgroundColor: '#EEF4FF',
+    borderWidth: 1,
+    borderColor: '#D6E4FF',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 4,
+  },
+  summaryBannerTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  summaryBannerText: {
+    color: colors.mutedText,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  sectionHeaderRow: {
+    gap: 12,
+  },
+  sectionHeaderText: {
+    gap: 4,
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: 16,
@@ -861,17 +1225,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  chipRow: {
+    gap: 8,
+    paddingRight: 6,
+  },
   inlineRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  chipRow: {
-    gap: 8,
-    paddingRight: 6,
-  },
-  customFieldBlock: {
-    gap: 8,
+  helperText: {
+    color: colors.mutedText,
+    fontSize: 12,
+    lineHeight: 18,
   },
   errorText: {
     color: colors.danger,
@@ -879,10 +1245,84 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 18,
   },
-  helperText: {
+  readOnlyValue: {
+    gap: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FBFCFF',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  readOnlyLabel: {
     color: colors.mutedText,
     fontSize: 12,
-    lineHeight: 18,
+    fontWeight: '600',
+  },
+  readOnlyText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  connectorCard: {
+    gap: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FBFCFF',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  connectorHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  connectorTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  connectorActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  connectorAction: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: colors.surface,
+  },
+  connectorActionDisabled: {
+    opacity: 0.45,
+  },
+  connectorActionText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  connectorActionDanger: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#F3C7C7',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#FFF4F4',
+  },
+  connectorActionDangerText: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  connectorOptionGroup: {
+    gap: 8,
+  },
+  customFieldBlock: {
+    gap: 8,
   },
   required: {
     color: colors.danger,
@@ -892,5 +1332,8 @@ const styles = StyleSheet.create({
   },
   actions: {
     gap: 10,
+  },
+  pressed: {
+    opacity: 0.82,
   },
 });

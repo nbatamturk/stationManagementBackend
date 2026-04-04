@@ -10,12 +10,14 @@ import {
   stationStatusValues,
   stationTestResultValues,
 } from '../../src/contracts/domain';
-import { stationConnectors } from '../../src/db/schema';
+import { stationConnectors, stationModels } from '../../src/db/schema';
 import {
   assertStationConnectorSummary,
   assertIsoDateTime,
   assertStationSummary,
   assertStationSync,
+  authHeaders,
+  buildMultipartUpload,
   expectError,
   expectPaginated,
   expectSuccess,
@@ -29,6 +31,11 @@ import {
   fixtureIds,
   resetIntegrationDb,
 } from '../helpers/integration';
+
+const tinyPngImage = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9W3nQAAAAASUVORK5CYII=',
+  'base64',
+);
 
 test('stations contract', async (t) => {
   const app = await createTestApp();
@@ -125,6 +132,129 @@ test('stations contract', async (t) => {
     );
     assert.equal(sichargeD?.latestTemplateVersion, null);
     assert.deepEqual(sichargeD?.latestTemplateConnectors ?? [], []);
+  });
+
+  await t.test('station config falls back to legacy imageUrl when no stored backend image exists', async () => {
+    await resetIntegrationDb();
+
+    await db
+      .update(stationModels)
+      .set({
+        imageUrl: 'https://legacy.example/terra54.png',
+        logoUrl: 'https://legacy.example/terra54-logo.png',
+      })
+      .where(eq(stationModels.id, fixtureIds.models.terra54));
+
+    const { token } = await loginAndGetToken(app, 'operator');
+    const response = await app.inject({
+      method: 'GET',
+      url: '/stations/config',
+      headers: bearerHeaders(token),
+    });
+    const data = expectSuccess<{ models: Array<{ id: string; imageUrl: string | null; logoUrl: string | null }> }>(
+      response,
+      200,
+    );
+
+    const terra54 = data.models.find((model) => model.id === fixtureIds.models.terra54);
+    assert.equal(terra54?.imageUrl, 'https://legacy.example/terra54.png');
+    assert.equal(terra54?.logoUrl, null);
+  });
+
+  await t.test('station model image upload, download, and delete use the secure backend-managed media flow', async () => {
+    await resetIntegrationDb();
+
+    const { token: adminToken } = await loginAndGetToken(app, 'admin');
+    const { token: operatorToken } = await loginAndGetToken(app, 'operator');
+    const upload = buildMultipartUpload({
+      content: tinyPngImage,
+      contentType: 'image/png',
+      fileName: 'terra54.png',
+    });
+
+    const forbiddenUpload = await app.inject({
+      method: 'PUT',
+      url: `/stations/models/${fixtureIds.models.terra54}/image`,
+      headers: authHeaders(operatorToken, upload.headers),
+      payload: upload.payload,
+    });
+    expectError(forbiddenUpload, 403, 'FORBIDDEN');
+
+    const uploadResponse = await app.inject({
+      method: 'PUT',
+      url: `/stations/models/${fixtureIds.models.terra54}/image`,
+      headers: authHeaders(adminToken, upload.headers),
+      payload: upload.payload,
+    });
+    const uploadData = expectSuccess<{ imageUrl: string | null; logoUrl: string | null }>(uploadResponse, 200);
+
+    assert.match(uploadData.imageUrl ?? '', new RegExp(`^/stations/models/${fixtureIds.models.terra54}/image\\?v=`));
+    assert.equal(uploadData.logoUrl, null);
+
+    const storedModel = await db.query.stationModels.findFirst({
+      where: eq(stationModels.id, fixtureIds.models.terra54),
+    });
+
+    assert.ok(storedModel?.imageStoragePath);
+    assert.ok(storedModel?.imageMimeType);
+    assert.ok(storedModel?.imageOriginalFileName);
+    assert.ok(typeof storedModel?.imageSizeBytes === 'number' && storedModel.imageSizeBytes > 0);
+
+    const anonymousDownload = await app.inject({
+      method: 'GET',
+      url: `/stations/models/${fixtureIds.models.terra54}/image`,
+    });
+    expectError(anonymousDownload, 401, 'UNAUTHORIZED');
+
+    const downloadResponse = await app.inject({
+      method: 'GET',
+      url: `/stations/models/${fixtureIds.models.terra54}/image`,
+      headers: bearerHeaders(operatorToken),
+    });
+
+    assert.equal(downloadResponse.statusCode, 200);
+    assert.match(String(downloadResponse.headers['content-type']), /^image\/(jpeg|png)$/i);
+    assert.match(String(downloadResponse.headers['content-disposition']), /^inline;/i);
+    assert.equal(String(downloadResponse.headers['cache-control']), 'private, max-age=300');
+    assert.equal(String(downloadResponse.headers['x-content-type-options']), 'nosniff');
+    assert.ok(Buffer.byteLength(downloadResponse.body) > 0);
+
+    const deleteResponse = await app.inject({
+      method: 'DELETE',
+      url: `/stations/models/${fixtureIds.models.terra54}/image`,
+      headers: bearerHeaders(adminToken),
+    });
+    expectSuccess<{ success: true; id: string }>(deleteResponse, 200);
+
+    const clearedModel = await db.query.stationModels.findFirst({
+      where: eq(stationModels.id, fixtureIds.models.terra54),
+    });
+
+    assert.equal(clearedModel?.imageStoragePath ?? null, null);
+    assert.equal(clearedModel?.imageMimeType ?? null, null);
+    assert.equal(clearedModel?.imageOriginalFileName ?? null, null);
+    assert.equal(clearedModel?.imageSizeBytes ?? null, null);
+    assert.equal(clearedModel?.imageUpdatedAt ?? null, null);
+  });
+
+  await t.test('station model image upload rejects invalid image content', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'admin');
+    const invalidUpload = buildMultipartUpload({
+      content: Buffer.from('not-a-real-image', 'utf-8'),
+      contentType: 'image/png',
+      fileName: 'broken.png',
+    });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/stations/models/${fixtureIds.models.terra54}/image`,
+      headers: authHeaders(token, invalidUpload.headers),
+      payload: invalidUpload.payload,
+    });
+
+    expectError(response, 415, 'INVALID_STATION_MODEL_IMAGE_CONTENT');
   });
 
   await t.test('create station returns the full station contract', async () => {

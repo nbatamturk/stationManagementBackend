@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +12,7 @@ import { formatCustomValue, formatDate, formatDateTime, formatEnumLabel, formatR
 import { Badge } from '@/components/ui/badge';
 import { ConfirmButton } from '@/components/ui/confirm-button';
 import { PageHeader } from '@/components/ui/page-header';
+import { ProtectedImage } from '@/components/ui/protected-image';
 import { StateCard } from '@/components/ui/state-card';
 import { useDocumentTitle } from '@/lib/use-document-title';
 
@@ -172,12 +172,15 @@ export default function StationDetailPage() {
           </div>
           {modelMedia ? (
             <div className='catalog-media-shell'>
-              <Image
+              <ProtectedImage
                 src={modelMedia}
                 alt={catalogModel?.name ?? currentStation.model}
-                width={320}
-                height={220}
                 className='catalog-media'
+                fallback={
+                  <div className='subtle-box'>
+                    <p className='muted'>The stored model image could not be loaded.</p>
+                  </div>
+                }
               />
             </div>
           ) : (

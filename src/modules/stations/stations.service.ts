@@ -4,6 +4,7 @@ import { db } from '../../db/client';
 import { connectorTypeValues, currentTypeValues, stationStatusValues } from '../../contracts/domain';
 import { stations, type CurrentType, type StationStatus } from '../../db/schema';
 import { writeAuditLog } from '../../utils/audit-log';
+import { UUID_PATTERN } from '../../utils/api-schemas';
 import { getPgError, isForeignKeyViolation, isUniqueViolation } from '../../utils/db-errors';
 import { AppError } from '../../utils/errors';
 import {
@@ -31,6 +32,14 @@ import {
   type StationConnectorResponse,
   type StationConnectorSummary,
 } from './station-connectors';
+import {
+  buildStationModelImageInlineContentDisposition,
+  buildStationModelImageStoragePath,
+  deleteStoredStationModelImageFile,
+  ensureStationModelImageReadable,
+  validateAndNormalizeModelImage,
+  writeStationModelImageBuffer,
+} from './station-model-images.storage';
 import {
   stationsRepository,
   type StationListFilter,
@@ -173,8 +182,6 @@ type StationCatalogModelCreatePayload = {
   brandId: string;
   name: string;
   description?: string | null;
-  imageUrl?: string | null;
-  logoUrl?: string | null;
   isActive?: boolean;
 };
 
@@ -182,6 +189,13 @@ type StationCatalogModelUpdatePayload = Partial<StationCatalogModelCreatePayload
 
 type StationCatalogModelTemplateUpdatePayload = {
   connectors: StationConnectorInput[];
+};
+
+type StationModelImageUploadPayload = {
+  originalFileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  buffer: Buffer;
 };
 
 type StationListQuery = {
@@ -236,7 +250,6 @@ const CUSTOM_FILTER_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 const MAX_CUSTOM_FILTERS = 20;
 const MAX_ID_FILTERS = 100;
 const STATION_CONFLICT_FIELDS = ['status', 'location', 'lastTestDate', 'notes', 'customFields', 'attachments', 'issues'] as const;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_STATION_POWER_KW = 1000;
 
 type ConnectorData = {
@@ -669,8 +682,6 @@ export class StationsService {
             brandId: normalized.brandId,
             name: normalized.name,
             description: normalized.description,
-            imageUrl: normalized.imageUrl,
-            logoUrl: normalized.logoUrl,
             isActive: normalized.isActive ?? true,
           },
           tx,
@@ -739,8 +750,6 @@ export class StationsService {
             brandId: normalized.brandId,
             name: normalized.name,
             description: normalized.description,
-            imageUrl: normalized.imageUrl,
-            logoUrl: normalized.logoUrl,
             isActive: normalized.isActive,
           },
           tx,
@@ -807,6 +816,7 @@ export class StationsService {
             metadataJson: {
               name: existing.name,
               brandId: existing.brandId,
+              hadStoredImage: Boolean(existing.imageStoragePath),
             },
           },
           tx,
@@ -824,9 +834,179 @@ export class StationsService {
       throw error;
     }
 
+    if (existing.imageStoragePath) {
+      try {
+        await deleteStoredStationModelImageFile(existing.imageStoragePath);
+      } catch (cleanupError) {
+        console.error('Failed to remove station model image after deleting model', cleanupError);
+      }
+    }
+
     return {
       success: true as const,
       id,
+    };
+  }
+
+  async uploadModelImage(userId: string, id: string, file: StationModelImageUploadPayload) {
+    const existing = await this.catalogRepository.findModelById(id);
+
+    if (!existing) {
+      throw new AppError('Station model not found', 404, 'STATION_MODEL_NOT_FOUND');
+    }
+
+    const normalizedImage = await validateAndNormalizeModelImage(file);
+    const storagePath = buildStationModelImageStoragePath({
+      modelId: existing.id,
+      originalFileName: normalizedImage.originalFileName,
+      mimeType: normalizedImage.mimeType,
+    });
+
+    await writeStationModelImageBuffer(storagePath, normalizedImage.buffer);
+
+    try {
+      const updated = await db.transaction(async (tx) => {
+        const saved = await this.catalogRepository.updateModel(
+          id,
+          {
+            imageUrl: null,
+            logoUrl: null,
+            imageStoragePath: storagePath,
+            imageMimeType: normalizedImage.mimeType,
+            imageOriginalFileName: normalizedImage.originalFileName,
+            imageSizeBytes: normalizedImage.sizeBytes,
+            imageUpdatedAt: new Date(),
+          },
+          tx,
+        );
+
+        if (!saved) {
+          throw new AppError('Station model not found', 404, 'STATION_MODEL_NOT_FOUND');
+        }
+
+        await writeAuditLog(
+          {
+            actorUserId: userId,
+            entityType: 'station_model',
+            entityId: id,
+            action: 'station_model.image_uploaded',
+            metadataJson: {
+              mimeType: normalizedImage.mimeType,
+              sizeBytes: normalizedImage.sizeBytes,
+              originalFileName: normalizedImage.originalFileName,
+            },
+          },
+          tx,
+        );
+
+        return saved;
+      });
+
+      if (existing.imageStoragePath && existing.imageStoragePath !== storagePath) {
+        try {
+          await deleteStoredStationModelImageFile(existing.imageStoragePath);
+        } catch (cleanupError) {
+          console.error('Failed to remove replaced station model image', cleanupError);
+        }
+      }
+
+      return this.toCatalogModelResponse(updated as ModelRecord);
+    } catch (error) {
+      try {
+        await deleteStoredStationModelImageFile(storagePath);
+      } catch (cleanupError) {
+        console.error('Failed to roll back station model image file after database error', cleanupError);
+      }
+
+      throw error;
+    }
+  }
+
+  async deleteModelImage(userId: string, id: string) {
+    const existing = await this.catalogRepository.findModelById(id);
+
+    if (!existing) {
+      throw new AppError('Station model not found', 404, 'STATION_MODEL_NOT_FOUND');
+    }
+
+    const hadAnyImage = Boolean(existing.imageStoragePath || existing.imageUrl || existing.logoUrl);
+
+    await db.transaction(async (tx) => {
+      const updated = await this.catalogRepository.updateModel(
+        id,
+        {
+          imageUrl: null,
+          logoUrl: null,
+          imageStoragePath: null,
+          imageMimeType: null,
+          imageOriginalFileName: null,
+          imageSizeBytes: null,
+          imageUpdatedAt: null,
+        },
+        tx,
+      );
+
+      if (!updated) {
+        throw new AppError('Station model not found', 404, 'STATION_MODEL_NOT_FOUND');
+      }
+
+      await writeAuditLog(
+        {
+          actorUserId: userId,
+          entityType: 'station_model',
+          entityId: id,
+          action: 'station_model.image_deleted',
+          metadataJson: {
+            hadAnyImage,
+            hadStoredImage: Boolean(existing.imageStoragePath),
+          },
+        },
+        tx,
+      );
+    });
+
+    if (existing.imageStoragePath) {
+      try {
+        await deleteStoredStationModelImageFile(existing.imageStoragePath);
+      } catch (cleanupError) {
+        console.error('Failed to remove deleted station model image from storage', cleanupError);
+      }
+    }
+
+    return {
+      success: true as const,
+      id,
+    };
+  }
+
+  async prepareModelImageDownload(userId: string, id: string) {
+    const existing = await this.catalogRepository.findModelById(id);
+
+    if (!existing) {
+      throw new AppError('Station model not found', 404, 'STATION_MODEL_NOT_FOUND');
+    }
+
+    if (!existing.imageStoragePath || !existing.imageMimeType || !existing.imageOriginalFileName || !existing.imageSizeBytes) {
+      throw new AppError('Station model image not found', 404, 'STATION_MODEL_IMAGE_NOT_FOUND');
+    }
+
+    const absolutePath = await ensureStationModelImageReadable(existing.imageStoragePath);
+
+    await writeAuditLog({
+      actorUserId: userId,
+      entityType: 'station_model',
+      entityId: id,
+      action: 'station_model.image_downloaded',
+      metadataJson: {
+        mimeType: existing.imageMimeType,
+      },
+    });
+
+    return {
+      absolutePath,
+      mimeType: existing.imageMimeType,
+      sizeBytes: existing.imageSizeBytes,
+      contentDisposition: buildStationModelImageInlineContentDisposition(existing.imageOriginalFileName),
     };
   }
 
@@ -1364,8 +1544,8 @@ export class StationsService {
       brandId: model.brandId,
       name: model.name,
       description: model.description ?? null,
-      imageUrl: model.imageUrl ?? null,
-      logoUrl: model.logoUrl ?? null,
+      imageUrl: this.getCatalogModelImageUrl(model),
+      logoUrl: null,
       isActive: model.isActive,
       createdAt: model.createdAt,
       updatedAt: model.updatedAt,
@@ -1617,8 +1797,6 @@ export class StationsService {
         emptyAs: 'null',
         maxLength: 4000,
       }),
-      imageUrl: normalizeNullableSingleLineText(payload.imageUrl, 'Station model image URL', 2000),
-      logoUrl: normalizeNullableSingleLineText(payload.logoUrl, 'Station model logo URL', 2000),
       isActive: payload.isActive,
     };
   }
@@ -1637,16 +1815,17 @@ export class StationsService {
               emptyAs: 'null',
               maxLength: 4000,
             }),
-      imageUrl:
-        payload.imageUrl === undefined
-          ? undefined
-          : normalizeNullableSingleLineText(payload.imageUrl, 'Station model image URL', 2000),
-      logoUrl:
-        payload.logoUrl === undefined
-          ? undefined
-          : normalizeNullableSingleLineText(payload.logoUrl, 'Station model logo URL', 2000),
       isActive: payload.isActive,
     };
+  }
+
+  private getCatalogModelImageUrl(model: ModelRecord): string | null {
+    if (model.imageStoragePath) {
+      const version = (model.imageUpdatedAt ?? model.updatedAt).toISOString();
+      return `/stations/models/${model.id}/image?v=${encodeURIComponent(version)}`;
+    }
+
+    return model.imageUrl ?? null;
   }
 
   private normalizeOptionalPower(value: unknown, label: string) {
@@ -1856,14 +2035,5 @@ const normalizeRequiredUuid = (value: string, label: string) => {
 
   return normalized;
 };
-
-const normalizeNullableSingleLineText = (
-  value: string | null | undefined,
-  label: string,
-  maxLength: number,
-) =>
-  normalizeOptionalSingleLineText(value ?? undefined, label, {
-    maxLength,
-  }) ?? null;
 
 export const stationsService = new StationsService();

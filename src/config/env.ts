@@ -36,6 +36,7 @@ const envSchema = z.object({
   LOGIN_RATE_LIMIT_BLOCK_MS: z.coerce.number().int().min(1_000).default(15 * 60 * 1_000),
   UPLOADS_DIR: z.string().min(1).default('uploads'),
   ATTACHMENTS_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+  MODEL_IMAGES_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
 });
 
 const parsed = envSchema.safeParse(process.env);

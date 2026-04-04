@@ -1,5 +1,7 @@
 import React from 'react';
 import {
+  KeyboardAvoidingView,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -9,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppMetaFooter } from '@/components/AppMetaFooter';
 import { colors, spacing } from '@/components/theme';
 
 type AppScreenProps = {
@@ -17,6 +20,8 @@ type AppScreenProps = {
   contentContainerStyle?: StyleProp<ViewStyle>;
   refreshing?: boolean;
   onRefresh?: () => void;
+  keyboardAvoiding?: boolean;
+  showAppMetaFooter?: boolean;
 };
 
 export const AppScreen = ({
@@ -25,38 +30,43 @@ export const AppScreen = ({
   contentContainerStyle,
   refreshing = false,
   onRefresh,
+  keyboardAvoiding = false,
+  showAppMetaFooter = true,
 }: AppScreenProps): React.JSX.Element => {
   const insets = useSafeAreaInsets();
   const bottomPadding = 24 + Math.max(insets.bottom, spacing.lg);
+  const behavior = Platform.OS === 'ios' ? 'padding' : 'height';
 
-  if (scroll) {
-    return (
-      <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: bottomPadding },
-            contentContainerStyle,
-          ]}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            onRefresh ? (
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-            ) : undefined
-          }
-        >
-          {children}
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
+  const screenContent = scroll ? (
+    <ScrollView
+      contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        ) : undefined
+      }
+    >
+      <View style={[styles.body, contentContainerStyle]}>{children}</View>
+      {showAppMetaFooter ? <AppMetaFooter style={styles.footer} /> : null}
+    </ScrollView>
+  ) : (
+    <View style={[styles.content, { paddingBottom: bottomPadding }]}>
+      <View style={[styles.body, contentContainerStyle]}>{children}</View>
+      {showAppMetaFooter ? <AppMetaFooter style={styles.footer} /> : null}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
-      <View style={[styles.content, { paddingBottom: bottomPadding }, contentContainerStyle]}>
-        {children}
-      </View>
+      {keyboardAvoiding ? (
+        <KeyboardAvoidingView behavior={behavior} style={styles.flex}>
+          {screenContent}
+        </KeyboardAvoidingView>
+      ) : (
+        screenContent
+      )}
     </SafeAreaView>
   );
 };
@@ -66,11 +76,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  flex: {
+    flex: 1,
+  },
   content: {
     flexGrow: 1,
     paddingHorizontal: 16,
     paddingTop: spacing.xs,
     backgroundColor: colors.background,
+  },
+  body: {
+    flexGrow: 1,
     gap: spacing.md,
+  },
+  footer: {
+    marginTop: spacing.lg,
   },
 });

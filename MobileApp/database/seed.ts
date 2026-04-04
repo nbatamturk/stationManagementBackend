@@ -1,10 +1,34 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { CustomFieldDefinition, Station } from '@/types';
+import type { CustomFieldDefinition, StationCurrentType } from '@/types';
 
 const SEED_VERSION = 'initial_v1';
 
-type SeedStation = Omit<Station, 'createdAt' | 'updatedAt'> & {
+type SeedStationStatus =
+  | 'available'
+  | 'in_use'
+  | 'maintenance'
+  | 'offline'
+  | 'retired'
+  | 'active'
+  | 'inactive'
+  | 'faulty';
+
+type SeedStation = {
+  id: string;
+  name: string;
+  code: string;
+  qrCode: string;
+  brand: string;
+  model: string;
+  serialNumber: string;
+  powerKw: number;
+  currentType: StationCurrentType;
+  socketType: string;
+  location: string;
+  status: SeedStationStatus;
+  lastTestDate: string | null;
+  notes: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -15,6 +15,7 @@ import { Select } from '@/components/ui/select';
 import { StateCard } from '@/components/ui/state-card';
 import { TableShell } from '@/components/ui/table-shell';
 import { Textarea } from '@/components/ui/textarea';
+import { ProtectedImage } from '@/components/ui/protected-image';
 import { stationsClient } from '@/lib/api/stations-client';
 import { useAuth } from '@/lib/auth/auth-context';
 import { useDocumentTitle } from '@/lib/use-document-title';
@@ -22,7 +23,7 @@ import { ConnectorFieldsEditor } from '@/features/stations/connector-fields-edit
 import { ConnectorFormValue, connectorsFormSchema, createEmptyConnector, toConnectorFormValue } from '@/features/stations/connector-form';
 
 const templateSchema = z.object({
-  modelId: z.string().uuid('Select a model'),
+  modelId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Select a model'),
   connectors: connectorsFormSchema,
 });
 
@@ -36,6 +37,11 @@ export default function StationCatalogPage() {
   const [editingModelId, setEditingModelId] = useState('');
   const brandFormRef = useRef<HTMLFormElement | null>(null);
   const modelFormRef = useRef<HTMLFormElement | null>(null);
+  const modelImageInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedModelImageFile, setSelectedModelImageFile] = useState<File | null>(null);
+  const [selectedModelImagePreviewUrl, setSelectedModelImagePreviewUrl] = useState('');
+  const [removeModelImage, setRemoveModelImage] = useState(false);
+  const [modelImageSyncMessage, setModelImageSyncMessage] = useState('');
   const stationConfig = useQuery({
     queryKey: ['station-config'],
     queryFn: () => stationsClient.getConfig(),
@@ -61,6 +67,10 @@ export default function StationCatalogPage() {
     () => new Map(brands.map((brand) => [brand.id, brand])),
     [brands],
   );
+  const editingModel = useMemo(
+    () => models.find((model) => model.id === editingModelId) ?? null,
+    [editingModelId, models],
+  );
 
   const brandForm = useForm({
     defaultValues: {
@@ -73,8 +83,6 @@ export default function StationCatalogPage() {
       brandId: '',
       name: '',
       description: '',
-      imageUrl: '',
-      logoUrl: '',
       isActive: 'true',
     },
   });
@@ -112,10 +120,18 @@ export default function StationCatalogPage() {
       brandId: '',
       name: '',
       description: '',
-      imageUrl: '',
-      logoUrl: '',
       isActive: 'true',
     });
+    setSelectedModelImageFile(null);
+    setRemoveModelImage(false);
+    setModelImageSyncMessage('');
+    if (selectedModelImagePreviewUrl) {
+      URL.revokeObjectURL(selectedModelImagePreviewUrl);
+      setSelectedModelImagePreviewUrl('');
+    }
+    if (modelImageInputRef.current) {
+      modelImageInputRef.current.value = '';
+    }
   };
 
   const focusCard = (element: HTMLFormElement | null, fieldId: string) => {
@@ -141,11 +157,64 @@ export default function StationCatalogPage() {
       brandId: model.brandId,
       name: model.name,
       description: model.description ?? '',
-      imageUrl: model.imageUrl ?? '',
-      logoUrl: model.logoUrl ?? '',
       isActive: String(model.isActive),
     });
+    setSelectedModelImageFile(null);
+    setRemoveModelImage(false);
+    setModelImageSyncMessage('');
+    if (selectedModelImagePreviewUrl) {
+      URL.revokeObjectURL(selectedModelImagePreviewUrl);
+      setSelectedModelImagePreviewUrl('');
+    }
+    if (modelImageInputRef.current) {
+      modelImageInputRef.current.value = '';
+    }
     focusCard(modelFormRef.current, 'model-brand');
+  };
+
+  useEffect(() => {
+    return () => {
+      if (selectedModelImagePreviewUrl) {
+        URL.revokeObjectURL(selectedModelImagePreviewUrl);
+      }
+    };
+  }, [selectedModelImagePreviewUrl]);
+
+  const setLocalModelImagePreview = (file: File | null) => {
+    if (selectedModelImagePreviewUrl) {
+      URL.revokeObjectURL(selectedModelImagePreviewUrl);
+    }
+
+    setSelectedModelImagePreviewUrl(file ? URL.createObjectURL(file) : '');
+  };
+
+  const handleModelImageSelection = (file: File | null) => {
+    setModelImageSyncMessage('');
+    setSelectedModelImageFile(file);
+    setRemoveModelImage(false);
+    setLocalModelImagePreview(file);
+  };
+
+  const clearModelImageSelection = () => {
+    setModelImageSyncMessage('');
+    setSelectedModelImageFile(null);
+    setRemoveModelImage(false);
+    setLocalModelImagePreview(null);
+
+    if (modelImageInputRef.current) {
+      modelImageInputRef.current.value = '';
+    }
+  };
+
+  const markModelImageForRemoval = () => {
+    setModelImageSyncMessage('');
+    setSelectedModelImageFile(null);
+    setRemoveModelImage(Boolean(editingModel?.imageUrl));
+    setLocalModelImagePreview(null);
+
+    if (modelImageInputRef.current) {
+      modelImageInputRef.current.value = '';
+    }
   };
 
   useEffect(() => {
@@ -189,20 +258,61 @@ export default function StationCatalogPage() {
     mutationFn: ({
       id,
       payload,
+      imageFile,
+      shouldRemoveImage,
     }: {
       id?: string;
       payload: {
         brandId: string;
         name: string;
         description: string | null;
-        imageUrl: string | null;
-        logoUrl: string | null;
         isActive: boolean;
       };
-    }) => (id ? stationsClient.updateModel(id, payload) : stationsClient.createModel(payload)),
-    onSuccess: async () => {
-      resetModelForm();
+      imageFile: File | null;
+      shouldRemoveImage: boolean;
+    }) => {
+      return (async () => {
+        const metadataResponse = id
+          ? await stationsClient.updateModel(id, payload)
+          : await stationsClient.createModel(payload);
+        let imageSyncError: string | null = null;
+
+        try {
+          if (imageFile) {
+            await stationsClient.uploadModelImage(metadataResponse.data.id, imageFile);
+          } else if (shouldRemoveImage) {
+            await stationsClient.deleteModelImage(metadataResponse.data.id);
+          }
+        } catch (error) {
+          imageSyncError =
+            error instanceof Error
+              ? `Model saved, but image update failed: ${error.message}`
+              : 'Model saved, but image update failed.';
+        }
+
+        return {
+          imageSyncError,
+          model: metadataResponse.data,
+        };
+      })();
+    },
+    onSuccess: async ({ model, imageSyncError }) => {
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
+
+      if (imageSyncError) {
+        setEditingModelId(model.id);
+        modelForm.reset({
+          brandId: model.brandId,
+          name: model.name,
+          description: model.description ?? '',
+          isActive: String(model.isActive),
+        });
+        setModelImageSyncMessage(imageSyncError);
+        focusCard(modelFormRef.current, 'model-brand');
+        return;
+      }
+
+      resetModelForm();
     },
   });
   const modelToggleMutation = useMutation({
@@ -211,24 +321,18 @@ export default function StationCatalogPage() {
       brandId,
       name,
       description,
-      imageUrl,
-      logoUrl,
       isActive,
     }: {
       id: string;
       brandId: string;
       name: string;
       description: string | null;
-      imageUrl: string | null;
-      logoUrl: string | null;
       isActive: boolean;
     }) =>
       stationsClient.updateModel(id, {
         brandId,
         name,
         description,
-        imageUrl,
-        logoUrl,
         isActive,
       }),
     onSuccess: async () => {
@@ -276,6 +380,7 @@ export default function StationCatalogPage() {
       });
     },
   });
+  const currentModelImageUrl = selectedModelImagePreviewUrl || (!removeModelImage ? editingModel?.imageUrl ?? null : null);
 
   return (
     <RequireRole roles={['admin']} title='Admin only' description='Station catalog configuration is restricted to administrators.'>
@@ -401,16 +506,17 @@ export default function StationCatalogPage() {
               ref={modelFormRef}
               className='card page-stack'
               onSubmit={modelForm.handleSubmit(async (values) => {
+                setModelImageSyncMessage('');
                 await modelMutation.mutateAsync({
                   id: editingModelId || undefined,
                   payload: {
                     brandId: values.brandId,
                     name: values.name.trim(),
                     description: values.description.trim() ? values.description : null,
-                    imageUrl: values.imageUrl.trim() ? values.imageUrl : null,
-                    logoUrl: values.logoUrl.trim() ? values.logoUrl : null,
                     isActive: values.isActive === 'true',
                   },
+                  imageFile: selectedModelImageFile,
+                  shouldRemoveImage: removeModelImage,
                 });
               })}
             >
@@ -446,14 +552,6 @@ export default function StationCatalogPage() {
                   <Input id='model-name' {...modelForm.register('name', { required: true })} />
                 </div>
                 <div className='field'>
-                  <label htmlFor='model-image'>Image URL</label>
-                  <Input id='model-image' {...modelForm.register('imageUrl')} />
-                </div>
-                <div className='field'>
-                  <label htmlFor='model-logo'>Logo URL</label>
-                  <Input id='model-logo' {...modelForm.register('logoUrl')} />
-                </div>
-                <div className='field'>
                   <label htmlFor='model-active'>State</label>
                   <Select id='model-active' {...modelForm.register('isActive')}>
                     <option value='true'>Active</option>
@@ -461,11 +559,73 @@ export default function StationCatalogPage() {
                   </Select>
                 </div>
               </div>
+              <div className='field page-stack'>
+                <div>
+                  <label htmlFor='model-image-file'>Model image</label>
+                  <p className='muted'>Upload one PNG, JPEG, or WebP image. The backend normalizes and stores it securely.</p>
+                </div>
+                <input
+                  className='input'
+                  id='model-image-file'
+                  ref={modelImageInputRef}
+                  type='file'
+                  accept='image/png,image/jpeg,image/webp'
+                  onChange={(event) => {
+                    handleModelImageSelection(event.target.files?.[0] ?? null);
+                  }}
+                />
+                {currentModelImageUrl ? (
+                  <div className='subtle-box page-stack'>
+                    <strong>Current preview</strong>
+                    {selectedModelImagePreviewUrl ? (
+                      <ProtectedImage
+                        src={selectedModelImagePreviewUrl}
+                        alt='Selected model preview'
+                        className='catalog-media'
+                      />
+                    ) : (
+                      <ProtectedImage
+                        src={currentModelImageUrl}
+                        alt={editingModel?.name ?? 'Station model image'}
+                        className='catalog-media'
+                        fallback={<p className='muted'>The stored model image could not be loaded.</p>}
+                      />
+                    )}
+                    <div className='section-actions'>
+                      {selectedModelImageFile ? (
+                        <Button type='button' variant='ghost' onClick={clearModelImageSelection}>
+                          Discard selected file
+                        </Button>
+                      ) : (
+                        <Button type='button' variant='ghost' onClick={markModelImageForRemoval}>
+                          Remove image
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className='subtle-box'>
+                    <p className='muted'>
+                      {removeModelImage
+                        ? 'The current image will be removed when you save this model.'
+                        : 'No model image is currently stored.'}
+                    </p>
+                    {removeModelImage ? (
+                      <div className='section-actions'>
+                        <Button type='button' variant='ghost' onClick={clearModelImageSelection}>
+                          Keep current image
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
               <div className='field'>
                 <label htmlFor='model-description'>Description</label>
                 <Textarea id='model-description' {...modelForm.register('description')} placeholder='Internal notes or operator-facing description' />
               </div>
               {modelMutation.error ? <p className='form-error'>{(modelMutation.error as Error).message}</p> : null}
+              {modelImageSyncMessage ? <p className='form-error'>{modelImageSyncMessage}</p> : null}
               <div className='section-actions'>
                 <Button type='submit' disabled={modelMutation.isPending}>
                   {modelMutation.isPending ? 'Saving...' : editingModelId ? 'Save model' : 'Create model'}
@@ -519,8 +679,6 @@ export default function StationCatalogPage() {
                                 brandId: model.brandId,
                                 name: model.name,
                                 description: model.description,
-                                imageUrl: model.imageUrl,
-                                logoUrl: model.logoUrl,
                                 isActive: !model.isActive,
                               })}
                               disabled={modelToggleMutation.isPending}
