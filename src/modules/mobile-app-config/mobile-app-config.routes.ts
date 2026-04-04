@@ -26,7 +26,7 @@ export const mobileAppConfigRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ['Mobile App Config'],
         summary: 'Get mobile app version policy',
         description:
-          'Returns the singleton minimum supported mobile app versions used by admin-web and future mobile app launch checks.',
+          'Returns the singleton minimum supported mobile app versions and optional platform download URLs used by admin-web and mobile app launch checks.',
         security: mobileAppConfigAdminRouteSecurity,
         response: {
           200: mobileAppConfigResponseSchema,
@@ -45,7 +45,8 @@ export const mobileAppConfigRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['Mobile App Config'],
         summary: 'Update mobile app version policy',
-        description: 'Updates the minimum supported mobile app version per platform for future app launch warnings.',
+        description:
+          'Updates the minimum supported mobile app version and optional download URL per platform for future app launch warnings.',
         security: mobileAppConfigAdminRouteSecurity,
         body: mobileAppConfigUpdateBodySchema,
         response: {
@@ -58,6 +59,8 @@ export const mobileAppConfigRoutes: FastifyPluginAsync = async (fastify) => {
       const body = request.body as {
         iosMinimumSupportedVersion: string | null;
         androidMinimumSupportedVersion: string | null;
+        iosDownloadUrl: string | null;
+        androidDownloadUrl: string | null;
       };
 
       return successResponse(await mobileAppConfigService.update(getCurrentUserId(request), body));

@@ -156,6 +156,7 @@ export interface MobileAppVersionCheckResult {
   platform: 'ios' | 'android';
   appVersion: string;
   minimumSupportedVersion: string | null;
+  downloadUrl: string | null;
   shouldWarn: boolean;
   warningMode: 'warn';
   message: string | null;

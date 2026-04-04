@@ -12,6 +12,8 @@ import { bearerHeaders, createTestApp, fixtureIds, resetIntegrationDb } from '..
 type MobileAppConfigResponseData = {
   iosMinimumSupportedVersion: string | null;
   androidMinimumSupportedVersion: string | null;
+  iosDownloadUrl: string | null;
+  androidDownloadUrl: string | null;
   updatedAt: string | null;
   updatedByUserId: string | null;
 };
@@ -20,6 +22,7 @@ type MobileAppVersionCheckResponseData = {
   platform: 'ios' | 'android';
   appVersion: string;
   minimumSupportedVersion: string | null;
+  downloadUrl: string | null;
   shouldWarn: boolean;
   warningMode: 'warn';
   message: string | null;
@@ -46,6 +49,8 @@ test('mobile app config contract', async (t) => {
     assert.deepEqual(data, {
       iosMinimumSupportedVersion: null,
       androidMinimumSupportedVersion: null,
+      iosDownloadUrl: null,
+      androidDownloadUrl: null,
       updatedAt: null,
       updatedByUserId: null,
     });
@@ -62,12 +67,19 @@ test('mobile app config contract', async (t) => {
       payload: {
         iosMinimumSupportedVersion: '1.2.3',
         androidMinimumSupportedVersion: '2.3.4',
+        iosDownloadUrl: 'https://apps.apple.com/app/example-ios',
+        androidDownloadUrl: 'https://play.google.com/store/apps/details?id=example.android',
       },
     });
     const updated = expectSuccess<MobileAppConfigResponseData>(updateResponse, 200);
 
     assert.equal(updated.iosMinimumSupportedVersion, '1.2.3');
     assert.equal(updated.androidMinimumSupportedVersion, '2.3.4');
+    assert.equal(updated.iosDownloadUrl, 'https://apps.apple.com/app/example-ios');
+    assert.equal(
+      updated.androidDownloadUrl,
+      'https://play.google.com/store/apps/details?id=example.android',
+    );
     assert.equal(updated.updatedByUserId, fixtureIds.users.admin);
     assertIsoDateTime(updated.updatedAt);
 
@@ -80,6 +92,11 @@ test('mobile app config contract', async (t) => {
 
     assert.equal(fetched.iosMinimumSupportedVersion, '1.2.3');
     assert.equal(fetched.androidMinimumSupportedVersion, '2.3.4');
+    assert.equal(fetched.iosDownloadUrl, 'https://apps.apple.com/app/example-ios');
+    assert.equal(
+      fetched.androidDownloadUrl,
+      'https://play.google.com/store/apps/details?id=example.android',
+    );
     assert.equal(fetched.updatedByUserId, fixtureIds.users.admin);
     assertIsoDateTime(fetched.updatedAt);
   });
@@ -95,6 +112,8 @@ test('mobile app config contract', async (t) => {
       payload: {
         iosMinimumSupportedVersion: '1.2.3',
         androidMinimumSupportedVersion: null,
+        iosDownloadUrl: null,
+        androidDownloadUrl: null,
       },
     });
 
@@ -117,8 +136,44 @@ test('mobile app config contract', async (t) => {
     assert.equal(data.platform, 'ios');
     assert.equal(data.appVersion, '1.0.0');
     assert.equal(data.minimumSupportedVersion, null);
+    assert.equal(data.downloadUrl, null);
     assert.equal(data.shouldWarn, false);
     assert.equal(data.warningMode, 'warn');
+    assert.equal(data.message, null);
+  });
+
+  await t.test('platform download URLs do not trigger warnings on their own but are returned by the public check endpoint', async () => {
+    await resetIntegrationDb();
+
+    const { token } = await loginAndGetToken(app, 'admin');
+    expectSuccess<MobileAppConfigResponseData>(
+      await app.inject({
+        method: 'PUT',
+        url: '/mobile-app-config',
+        headers: bearerHeaders(token),
+        payload: {
+          iosMinimumSupportedVersion: null,
+          androidMinimumSupportedVersion: null,
+          iosDownloadUrl: 'https://apps.apple.com/app/example-ios',
+          androidDownloadUrl: 'https://play.google.com/store/apps/details?id=example.android',
+        },
+      }),
+      200,
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/mobile-app-config/check',
+      payload: {
+        platform: 'android',
+        appVersion: '1.0.0',
+      },
+    });
+    const data = expectSuccess<MobileAppVersionCheckResponseData>(response, 200);
+
+    assert.equal(data.minimumSupportedVersion, null);
+    assert.equal(data.downloadUrl, 'https://play.google.com/store/apps/details?id=example.android');
+    assert.equal(data.shouldWarn, false);
     assert.equal(data.message, null);
   });
 
@@ -134,6 +189,8 @@ test('mobile app config contract', async (t) => {
         payload: {
           iosMinimumSupportedVersion: '1.2.3',
           androidMinimumSupportedVersion: '2.0.0',
+          iosDownloadUrl: 'https://apps.apple.com/app/example-ios',
+          androidDownloadUrl: 'https://play.google.com/store/apps/details?id=example.android',
         },
       }),
       200,
@@ -152,6 +209,10 @@ test('mobile app config contract', async (t) => {
     );
 
     assert.equal(belowMinimum.minimumSupportedVersion, '2.0.0');
+    assert.equal(
+      belowMinimum.downloadUrl,
+      'https://play.google.com/store/apps/details?id=example.android',
+    );
     assert.equal(belowMinimum.shouldWarn, true);
     assert.match(belowMinimum.message ?? '', /below the minimum supported version/i);
 
@@ -168,6 +229,7 @@ test('mobile app config contract', async (t) => {
     );
 
     assert.equal(equalVersion.shouldWarn, false);
+    assert.equal(equalVersion.downloadUrl, 'https://apps.apple.com/app/example-ios');
     assert.equal(equalVersion.message, null);
 
     const aboveMinimum = expectSuccess<MobileAppVersionCheckResponseData>(
@@ -183,14 +245,20 @@ test('mobile app config contract', async (t) => {
     );
 
     assert.equal(aboveMinimum.shouldWarn, false);
+    assert.equal(
+      aboveMinimum.downloadUrl,
+      'https://play.google.com/store/apps/details?id=example.android',
+    );
     assert.equal(aboveMinimum.message, null);
   });
 
-  await t.test('invalid platform and invalid version format are rejected with 400 responses', async () => {
+  await t.test('invalid platform, invalid version format, and invalid download URLs are rejected with 400 responses', async () => {
     await resetIntegrationDb();
 
-    const invalidResponses = await Promise.all([
-      app.inject({
+    const { token } = await loginAndGetToken(app, 'admin');
+
+    expectError(
+      await app.inject({
         method: 'POST',
         url: '/mobile-app-config/check',
         payload: {
@@ -198,7 +266,12 @@ test('mobile app config contract', async (t) => {
           appVersion: '1.0.0',
         },
       }),
-      app.inject({
+      400,
+      'VALIDATION_ERROR',
+    );
+
+    expectError(
+      await app.inject({
         method: 'POST',
         url: '/mobile-app-config/check',
         payload: {
@@ -206,19 +279,56 @@ test('mobile app config contract', async (t) => {
           appVersion: '1.0',
         },
       }),
-      app.inject({
+      400,
+      'VALIDATION_ERROR',
+    );
+
+    expectError(
+      await app.inject({
         method: 'PUT',
         url: '/mobile-app-config',
-        headers: bearerHeaders((await loginAndGetToken(app, 'admin')).token),
+        headers: bearerHeaders(token),
         payload: {
           iosMinimumSupportedVersion: '1.0',
           androidMinimumSupportedVersion: null,
+          iosDownloadUrl: null,
+          androidDownloadUrl: null,
         },
       }),
-    ]);
+      400,
+      'VALIDATION_ERROR',
+    );
 
-    for (const response of invalidResponses) {
-      expectError(response, 400, 'VALIDATION_ERROR');
-    }
+    expectError(
+      await app.inject({
+        method: 'PUT',
+        url: '/mobile-app-config',
+        headers: bearerHeaders(token),
+        payload: {
+          iosMinimumSupportedVersion: null,
+          androidMinimumSupportedVersion: null,
+          iosDownloadUrl: 'http://apps.apple.com/app/example-ios',
+          androidDownloadUrl: null,
+        },
+      }),
+      400,
+      'INVALID_APP_DOWNLOAD_URL',
+    );
+
+    expectError(
+      await app.inject({
+        method: 'PUT',
+        url: '/mobile-app-config',
+        headers: bearerHeaders(token),
+        payload: {
+          iosMinimumSupportedVersion: null,
+          androidMinimumSupportedVersion: null,
+          iosDownloadUrl: 'not-a-url',
+          androidDownloadUrl: null,
+        },
+      }),
+      400,
+      'INVALID_APP_DOWNLOAD_URL',
+    );
   });
 });

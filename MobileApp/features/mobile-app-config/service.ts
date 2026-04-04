@@ -1,4 +1,5 @@
 import * as Application from 'expo-application';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { apiFetch } from '@/lib/api/http';
@@ -13,7 +14,16 @@ export const getInstalledAppVersion = (): string | null => {
     return null;
   }
 
-  return Application.nativeApplicationVersion?.trim() || null;
+  const nativeApplicationVersion = Application.nativeApplicationVersion?.trim() || null;
+  const configuredApplicationVersion = Constants.expoConfig?.version?.trim() || null;
+
+  // In Expo Go and debug sessions, nativeApplicationVersion can reflect the host binary
+  // rather than this project's configured app version, which makes warning checks misleading.
+  if (__DEV__ || Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+    return configuredApplicationVersion ?? nativeApplicationVersion;
+  }
+
+  return nativeApplicationVersion ?? configuredApplicationVersion;
 };
 
 export const getMobilePlatform = (): 'ios' | 'android' | null => {

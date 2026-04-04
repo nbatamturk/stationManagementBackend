@@ -285,6 +285,8 @@ export interface DashboardRecentTest {
 export interface MobileAppConfig {
   iosMinimumSupportedVersion: string | null;
   androidMinimumSupportedVersion: string | null;
+  iosDownloadUrl: string | null;
+  androidDownloadUrl: string | null;
   updatedAt: string | null;
   updatedByUserId: string | null;
 }
@@ -292,6 +294,8 @@ export interface MobileAppConfig {
 export interface MobileAppConfigUpdatePayload {
   iosMinimumSupportedVersion: string | null;
   androidMinimumSupportedVersion: string | null;
+  iosDownloadUrl: string | null;
+  androidDownloadUrl: string | null;
 }
 
 export interface MobileAppVersionCheckPayload {
@@ -303,6 +307,7 @@ export interface MobileAppVersionCheckResult {
   platform: MobilePlatform;
   appVersion: string;
   minimumSupportedVersion: string | null;
+  downloadUrl: string | null;
   shouldWarn: boolean;
   warningMode: 'warn';
   message: string | null;

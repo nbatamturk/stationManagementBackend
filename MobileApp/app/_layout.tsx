@@ -1,9 +1,9 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, StyleSheet, Text, View } from 'react-native';
+import { Linking, Modal, StyleSheet, Text, View } from 'react-native';
 
-import { AppButton, AppCard, AppScreen, ErrorState, LoadingState, colors } from '@/components';
+import { AppButton, AppCard, AppScreen, ButtonRow, ErrorState, LoadingState, colors } from '@/components';
 import { AuthProvider, useAuth } from '@/features/auth';
 import { checkMobileAppVersion } from '@/features/mobile-app-config/service';
 import type { MobileAppVersionCheckResult } from '@/types';
@@ -23,7 +23,7 @@ type VersionWarningState = {
 };
 
 const getWarningSignature = (result: MobileAppVersionCheckResult) =>
-  `${result.platform}:${result.appVersion}:${result.minimumSupportedVersion ?? 'none'}`;
+  `${result.platform}:${result.appVersion}:${result.minimumSupportedVersion ?? 'none'}:${result.downloadUrl ?? 'none'}`;
 
 const buildWarningMessage = (result: MobileAppVersionCheckResult) =>
   result.message ??
@@ -196,9 +196,31 @@ const VersionWarningModal = ({
   warning: VersionWarningState | null;
   onDismiss: () => void;
 }): React.JSX.Element | null => {
+  const [openUrlError, setOpenUrlError] = useState('');
+
+  useEffect(() => {
+    setOpenUrlError('');
+  }, [warning?.signature]);
+
   if (!warning) {
     return null;
   }
+
+  const handleOpenDownloadUrl = async () => {
+    const downloadUrl = warning.result.downloadUrl;
+
+    if (!downloadUrl) {
+      return;
+    }
+
+    try {
+      setOpenUrlError('');
+      await Linking.openURL(downloadUrl);
+      onDismiss();
+    } catch {
+      setOpenUrlError('Could not open the update link on this device. You can continue using the app for now.');
+    }
+  };
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onDismiss}>
@@ -216,7 +238,22 @@ const VersionWarningModal = ({
             </Text>
           </View>
 
-          <AppButton label="Continue" onPress={onDismiss} />
+          {openUrlError ? <Text style={styles.warningErrorText}>{openUrlError}</Text> : null}
+
+          {warning.result.downloadUrl ? (
+            <ButtonRow>
+              <AppButton
+                label="Update App"
+                onPress={() => {
+                  void handleOpenDownloadUrl();
+                }}
+                style={styles.warningAction}
+              />
+              <AppButton label="Continue" onPress={onDismiss} variant="secondary" style={styles.warningAction} />
+            </ButtonRow>
+          ) : (
+            <AppButton label="Continue" onPress={onDismiss} />
+          )}
         </AppCard>
       </View>
     </Modal>
@@ -275,5 +312,13 @@ const styles = StyleSheet.create({
     color: colors.mutedText,
     fontSize: 12,
     lineHeight: 18,
+  },
+  warningErrorText: {
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  warningAction: {
+    flex: 1,
   },
 });

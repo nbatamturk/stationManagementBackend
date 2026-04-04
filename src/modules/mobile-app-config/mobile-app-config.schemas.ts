@@ -19,6 +19,7 @@ const versionStringSchema = Type.String({
 });
 
 const nullableVersionStringSchema = Type.Union([versionStringSchema, Type.Null()]);
+const nullableHttpsUrlSchema = Type.Union([Type.String({ maxLength: 2048 }), Type.Null()]);
 
 const mobilePlatformSchema = createEnumSchema(mobilePlatformValues);
 
@@ -26,6 +27,8 @@ export const mobileAppConfigSchema = Type.Object(
   {
     iosMinimumSupportedVersion: nullableVersionStringSchema,
     androidMinimumSupportedVersion: nullableVersionStringSchema,
+    iosDownloadUrl: nullableHttpsUrlSchema,
+    androidDownloadUrl: nullableHttpsUrlSchema,
     updatedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
     updatedByUserId: Type.Union([uuidSchema, Type.Null()]),
   },
@@ -36,6 +39,8 @@ export const mobileAppConfigUpdateBodySchema = Type.Object(
   {
     iosMinimumSupportedVersion: nullableVersionStringSchema,
     androidMinimumSupportedVersion: nullableVersionStringSchema,
+    iosDownloadUrl: nullableHttpsUrlSchema,
+    androidDownloadUrl: nullableHttpsUrlSchema,
   },
   { additionalProperties: false },
 );
@@ -53,6 +58,7 @@ export const mobileAppVersionCheckResultSchema = Type.Object(
     platform: mobilePlatformSchema,
     appVersion: versionStringSchema,
     minimumSupportedVersion: nullableVersionStringSchema,
+    downloadUrl: nullableHttpsUrlSchema,
     shouldWarn: Type.Boolean(),
     warningMode: Type.Literal('warn'),
     message: Type.Union([Type.String({ minLength: 1, maxLength: 255 }), Type.Null()]),

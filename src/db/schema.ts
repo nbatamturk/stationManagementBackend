@@ -355,6 +355,8 @@ export const mobileAppConfig = pgTable(
     configKey: varchar('config_key', { length: 40 }).default('default').notNull(),
     iosMinimumSupportedVersion: varchar('ios_minimum_supported_version', { length: 32 }),
     androidMinimumSupportedVersion: varchar('android_minimum_supported_version', { length: 32 }),
+    iosDownloadUrl: varchar('ios_download_url', { length: 2048 }),
+    androidDownloadUrl: varchar('android_download_url', { length: 2048 }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

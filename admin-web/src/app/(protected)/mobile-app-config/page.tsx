@@ -17,11 +17,15 @@ import { MobileAppConfig } from '@/types/api';
 type MobileAppConfigFormValues = {
   iosMinimumSupportedVersion: string;
   androidMinimumSupportedVersion: string;
+  iosDownloadUrl: string;
+  androidDownloadUrl: string;
 };
 
 const defaultFormValues: MobileAppConfigFormValues = {
   iosMinimumSupportedVersion: '',
   androidMinimumSupportedVersion: '',
+  iosDownloadUrl: '',
+  androidDownloadUrl: '',
 };
 
 const versionPattern = /^\d+\.\d+\.\d+$/;
@@ -29,9 +33,16 @@ const versionPattern = /^\d+\.\d+\.\d+$/;
 const toFormValues = (config: MobileAppConfig): MobileAppConfigFormValues => ({
   iosMinimumSupportedVersion: config.iosMinimumSupportedVersion ?? '',
   androidMinimumSupportedVersion: config.androidMinimumSupportedVersion ?? '',
+  iosDownloadUrl: config.iosDownloadUrl ?? '',
+  androidDownloadUrl: config.androidDownloadUrl ?? '',
 });
 
 const toNullableVersion = (value: string) => {
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+};
+
+const toNullableUrl = (value: string) => {
   const normalized = value.trim();
   return normalized ? normalized : null;
 };
@@ -44,6 +55,21 @@ const validateOptionalVersion = (value: string) => {
   }
 
   return versionPattern.test(normalized) || 'Use x.y.z format.';
+};
+
+const validateOptionalHttpsUrl = (value: string) => {
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    return parsed.protocol === 'https:' || 'Use an https:// URL.';
+  } catch {
+    return 'Use a valid https:// URL.';
+  }
 };
 
 export default function MobileAppConfigPage() {
@@ -71,6 +97,8 @@ export default function MobileAppConfigPage() {
       mobileAppConfigClient.update({
         iosMinimumSupportedVersion: toNullableVersion(values.iosMinimumSupportedVersion),
         androidMinimumSupportedVersion: toNullableVersion(values.androidMinimumSupportedVersion),
+        iosDownloadUrl: toNullableUrl(values.iosDownloadUrl),
+        androidDownloadUrl: toNullableUrl(values.androidDownloadUrl),
       }),
     onSuccess: async (response) => {
       form.reset(toFormValues(response.data));
@@ -89,12 +117,12 @@ export default function MobileAppConfigPage() {
       <div className='page-stack'>
         <PageHeader
           title='Mobile app config'
-          description='Manage the minimum supported iOS and Android app versions that future mobile launch warnings will use.'
+          description='Manage the minimum supported iOS and Android app versions plus optional store download links used by mobile warning flows.'
         />
 
         <StateCard
           title='Warning-only policy'
-          description='This phase only manages backend source-of-truth. Mobile launch-time warning behavior will be wired in the next phase without blocking app usage.'
+          description='Minimum supported versions stay non-blocking. When a warning appears on mobile, the optional platform download URLs below will power the Update App button.'
           tone='warning'
         />
 
@@ -117,7 +145,7 @@ export default function MobileAppConfigPage() {
           })}
         >
           <div>
-            <h3>Minimum supported versions</h3>
+            <h3>Platform version policy</h3>
             <p className='muted'>
               {currentConfig?.updatedAt
                 ? `Last updated ${formatDateTime(currentConfig.updatedAt)}${currentConfig.updatedByUserId ? ` by ${currentConfig.updatedByUserId}` : ''}.`
@@ -142,6 +170,26 @@ export default function MobileAppConfigPage() {
             </div>
 
             <div className='field'>
+              <label htmlFor='ios-download-url'>iOS download URL</label>
+              <Input
+                id='ios-download-url'
+                placeholder='https://apps.apple.com/app/...'
+                {...form.register('iosDownloadUrl', {
+                  validate: validateOptionalHttpsUrl,
+                })}
+              />
+              <p className='muted'>Optional. Used by the mobile warning modal Update App button for iOS.</p>
+              {currentConfig?.iosDownloadUrl ? (
+                <a href={currentConfig.iosDownloadUrl} target='_blank' rel='noreferrer' className='pill-link'>
+                  Open current iOS link
+                </a>
+              ) : null}
+              {form.formState.errors.iosDownloadUrl ? (
+                <p className='form-error'>{form.formState.errors.iosDownloadUrl.message}</p>
+              ) : null}
+            </div>
+
+            <div className='field'>
               <label htmlFor='android-min-version'>Android minimum supported version</label>
               <Input
                 id='android-min-version'
@@ -153,6 +201,26 @@ export default function MobileAppConfigPage() {
               <p className='muted'>Leave blank to disable warning checks for Android.</p>
               {form.formState.errors.androidMinimumSupportedVersion ? (
                 <p className='form-error'>{form.formState.errors.androidMinimumSupportedVersion.message}</p>
+              ) : null}
+            </div>
+
+            <div className='field'>
+              <label htmlFor='android-download-url'>Android download URL</label>
+              <Input
+                id='android-download-url'
+                placeholder='https://play.google.com/store/apps/details?id=...'
+                {...form.register('androidDownloadUrl', {
+                  validate: validateOptionalHttpsUrl,
+                })}
+              />
+              <p className='muted'>Optional. Used by the mobile warning modal Update App button for Android.</p>
+              {currentConfig?.androidDownloadUrl ? (
+                <a href={currentConfig.androidDownloadUrl} target='_blank' rel='noreferrer' className='pill-link'>
+                  Open current Android link
+                </a>
+              ) : null}
+              {form.formState.errors.androidDownloadUrl ? (
+                <p className='form-error'>{form.formState.errors.androidDownloadUrl.message}</p>
               ) : null}
             </div>
           </div>

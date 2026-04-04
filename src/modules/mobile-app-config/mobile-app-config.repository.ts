@@ -9,7 +9,11 @@ type MobileAppConfigInsert = typeof mobileAppConfig.$inferInsert;
 type MobileAppConfigUpdate = Partial<
   Pick<
     MobileAppConfigInsert,
-    'androidMinimumSupportedVersion' | 'iosMinimumSupportedVersion' | 'updatedBy'
+    | 'androidMinimumSupportedVersion'
+    | 'iosMinimumSupportedVersion'
+    | 'androidDownloadUrl'
+    | 'iosDownloadUrl'
+    | 'updatedBy'
   >
 >;
 
