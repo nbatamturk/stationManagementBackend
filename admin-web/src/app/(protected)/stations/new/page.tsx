@@ -41,7 +41,7 @@ export default function NewStationPage() {
       config={stationConfig.data.data}
       onSubmit={async (payload) => {
         await stationsClient.create(payload);
-        router.push('/stations');
+        router.push('/stations?notice=station-created');
       }}
     />
   );

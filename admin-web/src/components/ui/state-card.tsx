@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import clsx from 'clsx';
 
-type StateTone = 'neutral' | 'warning' | 'danger';
+type StateTone = 'neutral' | 'success' | 'warning' | 'danger';
 
 export function StateCard({
   title,

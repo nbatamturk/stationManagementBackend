@@ -1,7 +1,8 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { customFieldsClient } from '@/lib/api/custom-fields-client';
 import { issuesClient } from '@/lib/api/issues-client';
@@ -15,6 +16,12 @@ import { PageHeader } from '@/components/ui/page-header';
 import { ProtectedImage } from '@/components/ui/protected-image';
 import { StateCard } from '@/components/ui/state-card';
 import { useDocumentTitle } from '@/lib/use-document-title';
+import {
+  formatConnectorCount,
+  formatPowerKw,
+  getConnectorCurrentMixLabel,
+  getConnectorTypesLabel,
+} from '@/features/stations/connector-form';
 
 function getTone(value: string) {
   if (value === 'active' || value === 'pass' || value === 'resolved' || value === 'closed') {
@@ -34,8 +41,10 @@ function getTone(value: string) {
 
 export default function StationDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const { canWrite } = useAuth();
   const queryClient = useQueryClient();
+  const [templateSuccessMessage, setTemplateSuccessMessage] = useState('');
   const station = useQuery({ queryKey: ['station', id], queryFn: () => stationsClient.get(id) });
   const stationConfig = useQuery({ queryKey: ['station-config'], queryFn: () => stationsClient.getConfig() });
   const customFields = useQuery({ queryKey: ['station-custom-fields'], queryFn: () => customFieldsClient.list(true) });
@@ -43,9 +52,15 @@ export default function StationDetailPage() {
   const issues = useQuery({ queryKey: ['station-issues', id], queryFn: () => issuesClient.listByStation(id) });
   const applyTemplate = useMutation({
     mutationFn: () => stationsClient.applyModelTemplate(id),
-    onSuccess: async (response) => {
-      queryClient.setQueryData(['station', id], response);
-      await queryClient.invalidateQueries({ queryKey: ['stations-table'] });
+    onMutate: () => {
+      setTemplateSuccessMessage('');
+    },
+    onSuccess: async () => {
+      setTemplateSuccessMessage('The latest model template was applied and the station detail has been refreshed.');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['station', id] }),
+        queryClient.invalidateQueries({ queryKey: ['stations-table'] }),
+      ]);
     },
   });
   const pageTitle = station.data?.data?.name ?? 'Station Detail';
@@ -86,6 +101,14 @@ export default function StationDetailPage() {
   const catalogBrand = stationConfig.data.data.brands.find((brand) => brand.id === currentStation.brandId) ?? null;
   const catalogModel = stationConfig.data.data.models.find((model) => model.id === currentStation.modelId) ?? null;
   const modelMedia = catalogModel?.imageUrl ?? catalogModel?.logoUrl ?? null;
+  const notice = searchParams.get('notice');
+  const pageNotice =
+    notice === 'station-updated'
+      ? {
+          title: 'Station updated',
+          description: 'The saved station changes are now reflected below, including the current connector summary and derived compatibility fields.',
+        }
+      : null;
 
   return (
     <div className='page-stack'>
@@ -110,7 +133,15 @@ export default function StationDetailPage() {
         }
       />
 
-      {applyTemplate.error ? <p className='form-error'>{(applyTemplate.error as Error).message}</p> : null}
+      {pageNotice ? <StateCard title={pageNotice.title} description={pageNotice.description} tone='success' /> : null}
+      {templateSuccessMessage ? <StateCard title='Template applied' description={templateSuccessMessage} tone='success' /> : null}
+      {applyTemplate.error ? (
+        <StateCard
+          title='Template could not be applied'
+          description={(applyTemplate.error as Error).message}
+          tone='danger'
+        />
+      ) : null}
 
       <div className='summary-grid'>
         <div className='card metric-card'>
@@ -129,7 +160,8 @@ export default function StationDetailPage() {
           <p className='eyebrow'>Connector summary</p>
           <p className='kpi-value'>{currentStation.connectorSummary.count}</p>
           <p className='muted'>
-            {currentStation.connectorSummary.types.join(', ') || 'No connector types'} · Max {currentStation.connectorSummary.maxPowerKw} kW
+            {formatConnectorCount(currentStation.connectorSummary.count)} · {getConnectorTypesLabel(currentStation.connectorSummary)} ·{' '}
+            {getConnectorCurrentMixLabel(currentStation.connectorSummary)} · Max {formatPowerKw(currentStation.connectorSummary.maxPowerKw)} kW
           </p>
         </div>
         <div className='card metric-card'>
@@ -156,10 +188,10 @@ export default function StationDetailPage() {
           <div className='meta-row'><span className='meta-label'>Model</span><span>{catalogModel?.name ?? currentStation.model}</span></div>
           <div className='meta-row'><span className='meta-label'>Serial number</span><span>{currentStation.serialNumber}</span></div>
           <div className='meta-row'><span className='meta-label'>Location</span><span>{currentStation.location}</span></div>
-          <div className='meta-row'><span className='meta-label'>Derived power</span><span>{currentStation.powerKw} kW</span></div>
+          <div className='meta-row'><span className='meta-label'>Derived power</span><span>{formatPowerKw(currentStation.powerKw)} kW</span></div>
           <div className='meta-row'><span className='meta-label'>Derived current</span><span>{currentStation.currentType}</span></div>
           <div className='meta-row'><span className='meta-label'>Derived socket types</span><span>{currentStation.socketType}</span></div>
-          <div className='meta-row'><span className='meta-label'>Connector mix</span><span>{currentStation.connectorSummary.hasAC ? 'AC' : ''}{currentStation.connectorSummary.hasAC && currentStation.connectorSummary.hasDC ? ' / ' : ''}{currentStation.connectorSummary.hasDC ? 'DC' : ''}</span></div>
+          <div className='meta-row'><span className='meta-label'>Connector mix</span><span>{getConnectorCurrentMixLabel(currentStation.connectorSummary)}</span></div>
           <div className='meta-row'><span className='meta-label'>Last test date</span><span>{formatDate(currentStation.lastTestDate)}</span></div>
           <div className='meta-row'><span className='meta-label'>Created</span><span>{formatDateTime(currentStation.createdAt)}</span></div>
           <div className='meta-row'><span className='meta-label'>Updated</span><span>{formatRelativeTime(currentStation.updatedAt)} · {formatDateTime(currentStation.updatedAt)}</span></div>
@@ -219,7 +251,7 @@ export default function StationDetailPage() {
       <div className='card page-stack'>
         <div>
           <h3>Connectors</h3>
-          <p className='muted'>Writable connector rows are the source of truth for the station’s compatibility fields.</p>
+          <p className='muted'>Each saved connector row contributes to the station compatibility summary and derived top-level fields.</p>
         </div>
         {connectorItems.length === 0 ? (
           <p className='muted'>No live connectors are currently stored for this station.</p>
@@ -236,7 +268,7 @@ export default function StationDetailPage() {
                 <div className='inline-cluster'>
                   <Badge tone='info'>{connector.connectorType}</Badge>
                   <Badge>{connector.currentType}</Badge>
-                  <Badge>{connector.powerKw} kW</Badge>
+                  <Badge>{formatPowerKw(connector.powerKw)} kW</Badge>
                   <Badge>Sort {connector.sortOrder}</Badge>
                 </div>
               </div>

@@ -20,7 +20,17 @@ import { stationsClient } from '@/lib/api/stations-client';
 import { useAuth } from '@/lib/auth/auth-context';
 import { useDocumentTitle } from '@/lib/use-document-title';
 import { ConnectorFieldsEditor } from '@/features/stations/connector-fields-editor';
-import { ConnectorFormValue, connectorsFormSchema, createEmptyConnector, toConnectorFormValue } from '@/features/stations/connector-form';
+import {
+  ConnectorFormValue,
+  connectorsFormSchema,
+  createEmptyConnector,
+  deriveConnectorFields,
+  formatConnectorCount,
+  formatPowerKw,
+  getConnectorCurrentMixLabel,
+  getConnectorTypesLabel,
+  toConnectorFormValue,
+} from '@/features/stations/connector-form';
 
 const templateSchema = z.object({
   modelId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Select a model'),
@@ -42,6 +52,7 @@ export default function StationCatalogPage() {
   const [selectedModelImagePreviewUrl, setSelectedModelImagePreviewUrl] = useState('');
   const [removeModelImage, setRemoveModelImage] = useState(false);
   const [modelImageSyncMessage, setModelImageSyncMessage] = useState('');
+  const [catalogNotice, setCatalogNotice] = useState<{ title: string; description: string } | null>(null);
   const stationConfig = useQuery({
     queryKey: ['station-config'],
     queryFn: () => stationsClient.getConfig(),
@@ -104,9 +115,17 @@ export default function StationCatalogPage() {
     replace: replaceTemplateFields,
   } = templateFieldArray;
   const selectedTemplateModelId = useWatch({ control: templateForm.control, name: 'modelId' });
+  const watchedTemplateConnectors = useWatch({ control: templateForm.control, name: 'connectors' });
   const selectedTemplateModel = useMemo(
     () => models.find((model) => model.id === selectedTemplateModelId) ?? null,
     [models, selectedTemplateModelId],
+  );
+  const selectedTemplateSummary = useMemo(
+    () =>
+      selectedTemplateModel
+        ? deriveConnectorFields(selectedTemplateModel.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector)))
+        : null,
+    [selectedTemplateModel],
   );
 
   const resetBrandForm = () => {
@@ -232,25 +251,46 @@ export default function StationCatalogPage() {
   const brandMutation = useMutation({
     mutationFn: ({ id, payload }: { id?: string; payload: { name: string; isActive: boolean } }) =>
       id ? stationsClient.updateBrand(id, payload) : stationsClient.createBrand(payload),
+    onMutate: () => {
+      setCatalogNotice(null);
+    },
     onSuccess: async () => {
       resetBrandForm();
+      setCatalogNotice({
+        title: editingBrandId ? 'Brand updated' : 'Brand created',
+        description: 'Station forms now use the refreshed brand catalog.',
+      });
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
     },
   });
   const brandToggleMutation = useMutation({
     mutationFn: ({ id, name, isActive }: { id: string; name: string; isActive: boolean }) =>
       stationsClient.updateBrand(id, { name, isActive }),
+    onMutate: () => {
+      setCatalogNotice(null);
+    },
     onSuccess: async () => {
+      setCatalogNotice({
+        title: 'Brand state updated',
+        description: 'The selected brand availability has been refreshed across station forms.',
+      });
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
     },
   });
   const brandDeleteMutation = useMutation({
     mutationFn: (id: string) => stationsClient.deleteBrand(id),
+    onMutate: () => {
+      setCatalogNotice(null);
+    },
     onSuccess: async (_response, id) => {
       if (editingBrandId === id) {
         resetBrandForm();
       }
 
+      setCatalogNotice({
+        title: 'Brand deleted',
+        description: 'The brand was removed from the station catalog.',
+      });
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
     },
   });
@@ -296,6 +336,9 @@ export default function StationCatalogPage() {
         };
       })();
     },
+    onMutate: () => {
+      setCatalogNotice(null);
+    },
     onSuccess: async ({ model, imageSyncError }) => {
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
 
@@ -312,6 +355,10 @@ export default function StationCatalogPage() {
         return;
       }
 
+      setCatalogNotice({
+        title: editingModelId ? 'Model updated' : 'Model created',
+        description: 'Station forms and detail pages now use the refreshed model catalog data.',
+      });
       resetModelForm();
     },
   });
@@ -335,12 +382,22 @@ export default function StationCatalogPage() {
         description,
         isActive,
       }),
+    onMutate: () => {
+      setCatalogNotice(null);
+    },
     onSuccess: async () => {
+      setCatalogNotice({
+        title: 'Model state updated',
+        description: 'The selected model availability has been refreshed across station forms.',
+      });
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
     },
   });
   const modelDeleteMutation = useMutation({
     mutationFn: (id: string) => stationsClient.deleteModel(id),
+    onMutate: () => {
+      setCatalogNotice(null);
+    },
     onSuccess: async (_response, id) => {
       if (editingModelId === id) {
         resetModelForm();
@@ -353,6 +410,10 @@ export default function StationCatalogPage() {
         });
       }
 
+      setCatalogNotice({
+        title: 'Model deleted',
+        description: 'The model and its latest connector template were removed from the catalog.',
+      });
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
     },
   });
@@ -369,8 +430,15 @@ export default function StationCatalogPage() {
           isActive: connector.isActive,
         })),
       ),
+    onMutate: () => {
+      setCatalogNotice(null);
+    },
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ['station-config'] });
+      setCatalogNotice({
+        title: 'Template replaced',
+        description: 'The selected model now exposes the latest connector template for station create and edit flows.',
+      });
       templateForm.reset({
         modelId: response.data.id,
         connectors:
@@ -389,6 +457,8 @@ export default function StationCatalogPage() {
           title='Station catalog'
           description='Manage brands, models, and the latest connector templates without leaving the admin workspace.'
         />
+
+        {catalogNotice ? <StateCard title={catalogNotice.title} description={catalogNotice.description} tone='success' /> : null}
 
         {stationConfig.isLoading ? <StateCard title='Loading station catalog' description='Fetching the latest brand, model, and template configuration.' /> : null}
         {stationConfig.error ? <StateCard title='Station catalog unavailable' description={(stationConfig.error as Error).message} tone='danger' /> : null}
@@ -445,59 +515,63 @@ export default function StationCatalogPage() {
             </form>
 
             <TableShell title='Brands' description='Current catalog brands used by station creation and editing flows.'>
-              <div className='table-wrap'>
-                <table className='table'>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>State</th>
-                      <th>Updated</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {brands.map((brand) => (
-                      <tr key={brand.id}>
-                        <td>{brand.name}</td>
-                        <td><Badge tone={brand.isActive ? 'success' : 'warning'}>{brand.isActive ? 'Active' : 'Inactive'}</Badge></td>
-                        <td>{brand.updatedAt}</td>
-                        <td>
-                          <div className='table-actions'>
-                            <Button
-                              type='button'
-                              variant='secondary'
-                              onClick={() => startBrandEdit(brand)}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='ghost'
-                              onClick={() => brandToggleMutation.mutate({
-                                id: brand.id,
-                                name: brand.name,
-                                isActive: !brand.isActive,
-                              })}
-                              disabled={brandToggleMutation.isPending}
-                            >
-                              {brand.isActive ? 'Deactivate' : 'Activate'}
-                            </Button>
-                            <ConfirmButton
-                              label='Delete'
-                              variant='danger'
-                              disabled={brandDeleteMutation.isPending}
-                              confirmText={`Delete brand "${brand.name}"? This also removes unused models under this brand. Brands linked to stations cannot be deleted.`}
-                              onConfirm={() => {
-                                brandDeleteMutation.mutate(brand.id);
-                              }}
-                            />
-                          </div>
-                        </td>
+              {brands.length === 0 ? (
+                <p className='table-empty'>No brands exist yet. Create a brand above before adding station models.</p>
+              ) : (
+                <div className='table-wrap'>
+                  <table className='table'>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>State</th>
+                        <th>Updated</th>
+                        <th>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {brands.map((brand) => (
+                        <tr key={brand.id}>
+                          <td>{brand.name}</td>
+                          <td><Badge tone={brand.isActive ? 'success' : 'warning'}>{brand.isActive ? 'Active' : 'Inactive'}</Badge></td>
+                          <td>{brand.updatedAt}</td>
+                          <td>
+                            <div className='table-actions'>
+                              <Button
+                                type='button'
+                                variant='secondary'
+                                onClick={() => startBrandEdit(brand)}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                type='button'
+                                variant='ghost'
+                                onClick={() => brandToggleMutation.mutate({
+                                  id: brand.id,
+                                  name: brand.name,
+                                  isActive: !brand.isActive,
+                                })}
+                                disabled={brandToggleMutation.isPending}
+                              >
+                                {brand.isActive ? 'Deactivate' : 'Activate'}
+                              </Button>
+                              <ConfirmButton
+                                label='Delete'
+                                variant='danger'
+                                disabled={brandDeleteMutation.isPending}
+                                confirmText={`Delete brand "${brand.name}"? This also removes unused models under this brand. Brands linked to stations cannot be deleted.`}
+                                onConfirm={() => {
+                                  brandDeleteMutation.mutate(brand.id);
+                                }}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {brandToggleMutation.error ? <p className='form-error'>{(brandToggleMutation.error as Error).message}</p> : null}
               {brandDeleteMutation.error ? <p className='form-error'>{(brandDeleteMutation.error as Error).message}</p> : null}
             </TableShell>
@@ -538,7 +612,7 @@ export default function StationCatalogPage() {
               <div className='form-grid'>
                 <div className='field'>
                   <label htmlFor='model-brand'>Brand</label>
-                  <Select id='model-brand' {...modelForm.register('brandId', { required: true })}>
+                  <Select id='model-brand' {...modelForm.register('brandId', { required: true })} disabled={brands.length === 0}>
                     <option value=''>Select a brand</option>
                     {brands.map((brand) => (
                       <option key={brand.id} value={brand.id}>
@@ -546,6 +620,9 @@ export default function StationCatalogPage() {
                       </option>
                     ))}
                   </Select>
+                  {brands.length === 0 ? (
+                    <p className='field-hint'>Create a brand first so models can be attached to it.</p>
+                  ) : null}
                 </div>
                 <div className='field'>
                   <label htmlFor='model-name'>Name</label>
@@ -588,7 +665,16 @@ export default function StationCatalogPage() {
                         src={currentModelImageUrl}
                         alt={editingModel?.name ?? 'Station model image'}
                         className='catalog-media'
-                        fallback={<p className='muted'>The stored model image could not be loaded.</p>}
+                        fallback={
+                          <div className='page-stack'>
+                            <p className='muted'>
+                              The stored model image could not be loaded from the current backend environment.
+                            </p>
+                            <p className='field-hint'>
+                              This usually means the model image file is missing from backend storage. Re-upload the image to restore the preview.
+                            </p>
+                          </div>
+                        }
                       />
                     )}
                     <div className='section-actions'>
@@ -634,73 +720,89 @@ export default function StationCatalogPage() {
             </form>
 
             <TableShell title='Models' description='Catalog models that drive station selection, media, and template-backed connector defaults.'>
-              <div className='table-wrap'>
-                <table className='table'>
-                  <thead>
-                    <tr>
-                      <th>Model</th>
-                      <th>Brand</th>
-                      <th>Template</th>
-                      <th>State</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {models.map((model) => (
-                      <tr key={model.id}>
-                        <td>
-                          <div className='list'>
-                            <strong>{model.name}</strong>
-                            <span className='muted'>{model.description || 'No description stored.'}</span>
-                          </div>
-                        </td>
-                        <td>{brandMap.get(model.brandId)?.name ?? 'Unknown brand'}</td>
-                        <td>
-                          <div className='list'>
-                            <div>{model.latestTemplateVersion ? `v${model.latestTemplateVersion}` : 'No template'}</div>
-                            <div className='muted'>{model.latestTemplateConnectors.length} connector rows</div>
-                          </div>
-                        </td>
-                        <td><Badge tone={model.isActive ? 'success' : 'warning'}>{model.isActive ? 'Active' : 'Inactive'}</Badge></td>
-                        <td>
-                          <div className='table-actions'>
-                            <Button
-                              type='button'
-                              variant='secondary'
-                              onClick={() => startModelEdit(model)}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              type='button'
-                              variant='ghost'
-                              onClick={() => modelToggleMutation.mutate({
-                                id: model.id,
-                                brandId: model.brandId,
-                                name: model.name,
-                                description: model.description,
-                                isActive: !model.isActive,
-                              })}
-                              disabled={modelToggleMutation.isPending}
-                            >
-                              {model.isActive ? 'Deactivate' : 'Activate'}
-                            </Button>
-                            <ConfirmButton
-                              label='Delete'
-                              variant='danger'
-                              disabled={modelDeleteMutation.isPending}
-                              confirmText={`Delete model "${model.name}"? Its latest connector template will also be removed. Models linked to stations cannot be deleted.`}
-                              onConfirm={() => {
-                                modelDeleteMutation.mutate(model.id);
-                              }}
-                            />
-                          </div>
-                        </td>
+              {models.length === 0 ? (
+                <p className='table-empty'>No models exist yet. Add a model once the relevant brand is available.</p>
+              ) : (
+                <div className='table-wrap'>
+                  <table className='table'>
+                    <thead>
+                      <tr>
+                        <th>Model</th>
+                        <th>Brand</th>
+                        <th>Template</th>
+                        <th>State</th>
+                        <th>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {models.map((model) => {
+                        const templateSummary = deriveConnectorFields(
+                          model.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector)),
+                        );
+
+                        return (
+                          <tr key={model.id}>
+                            <td>
+                              <div className='list'>
+                                <strong>{model.name}</strong>
+                                <span className='muted'>{model.description || 'No description stored.'}</span>
+                              </div>
+                            </td>
+                            <td>{brandMap.get(model.brandId)?.name ?? 'Unknown brand'}</td>
+                            <td>
+                              <div className='list'>
+                                <div>{model.latestTemplateVersion ? `v${model.latestTemplateVersion}` : 'No template'}</div>
+                                <div className='muted'>
+                                  {formatConnectorCount(templateSummary.summary.count)} · {getConnectorTypesLabel(templateSummary.summary)}
+                                </div>
+                                <div className='muted'>
+                                  {getConnectorCurrentMixLabel(templateSummary.summary)}
+                                  {templateSummary.summary.count > 0 ? ` · Max ${formatPowerKw(templateSummary.summary.maxPowerKw)} kW` : ''}
+                                </div>
+                              </div>
+                            </td>
+                            <td><Badge tone={model.isActive ? 'success' : 'warning'}>{model.isActive ? 'Active' : 'Inactive'}</Badge></td>
+                            <td>
+                              <div className='table-actions'>
+                                <Button
+                                  type='button'
+                                  variant='secondary'
+                                  onClick={() => startModelEdit(model)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  type='button'
+                                  variant='ghost'
+                                  onClick={() => modelToggleMutation.mutate({
+                                    id: model.id,
+                                    brandId: model.brandId,
+                                    name: model.name,
+                                    description: model.description,
+                                    isActive: !model.isActive,
+                                  })}
+                                  disabled={modelToggleMutation.isPending}
+                                >
+                                  {model.isActive ? 'Deactivate' : 'Activate'}
+                                </Button>
+                                <ConfirmButton
+                                  label='Delete'
+                                  variant='danger'
+                                  disabled={modelDeleteMutation.isPending}
+                                  confirmText={`Delete model "${model.name}"? Its latest connector template will also be removed. Models linked to stations cannot be deleted.`}
+                                  onConfirm={() => {
+                                    modelDeleteMutation.mutate(model.id);
+                                  }}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {modelToggleMutation.error ? <p className='form-error'>{(modelToggleMutation.error as Error).message}</p> : null}
               {modelDeleteMutation.error ? <p className='form-error'>{(modelDeleteMutation.error as Error).message}</p> : null}
             </TableShell>
@@ -718,7 +820,7 @@ export default function StationCatalogPage() {
               <div className='form-grid'>
                 <div className='field'>
                   <label htmlFor='template-model'>Model</label>
-                  <Select id='template-model' {...templateForm.register('modelId')}>
+                  <Select id='template-model' {...templateForm.register('modelId')} disabled={models.length === 0}>
                     <option value=''>Select a model</option>
                     {models.map((model) => (
                       <option key={model.id} value={model.id}>
@@ -727,6 +829,9 @@ export default function StationCatalogPage() {
                     ))}
                   </Select>
                   {templateForm.formState.errors.modelId ? <p className='form-error'>{templateForm.formState.errors.modelId.message}</p> : null}
+                  {models.length === 0 ? (
+                    <p className='field-hint'>Create a model first before storing a connector template.</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -741,8 +846,34 @@ export default function StationCatalogPage() {
                     </Badge>
                   </div>
                   <p className='muted'>{selectedTemplateModel.description || 'No model description stored.'}</p>
+                  {selectedTemplateSummary ? (
+                    <div className='detail-grid'>
+                      <div className='subtle-box'>
+                        <p className='eyebrow'>Connector rows</p>
+                        <strong>{formatConnectorCount(selectedTemplateSummary.summary.count)}</strong>
+                        <p className='muted'>{getConnectorTypesLabel(selectedTemplateSummary.summary)}</p>
+                      </div>
+                      <div className='subtle-box'>
+                        <p className='eyebrow'>Current mix</p>
+                        <strong>{getConnectorCurrentMixLabel(selectedTemplateSummary.summary)}</strong>
+                        <p className='muted'>
+                          {selectedTemplateSummary.summary.count > 0
+                            ? `Max ${formatPowerKw(selectedTemplateSummary.summary.maxPowerKw)} kW`
+                            : 'No connector rows stored yet.'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+              ) : (
+                <div className='subtle-box'>
+                  <p className='muted'>
+                    {models.length === 0
+                      ? 'No models are available yet. Once a model exists, you can store its latest connector template here.'
+                      : 'Select a model to review and replace its latest connector template.'}
+                  </p>
+                </div>
+              )}
 
               <ConnectorFieldsEditor
                 fields={templateFields}
@@ -750,6 +881,7 @@ export default function StationCatalogPage() {
                 append={appendTemplateField}
                 remove={removeTemplateField}
                 errors={templateForm.formState.errors}
+                values={(watchedTemplateConnectors ?? []) as ConnectorFormValue[]}
                 disabled={templateMutation.isPending}
                 title='Template connectors'
                 description='These rows will become the latest template snapshot for the selected model.'

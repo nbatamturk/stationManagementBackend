@@ -12,7 +12,16 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ConnectorFieldsEditor } from './connector-fields-editor';
-import { ConnectorFormValue, connectorsFormSchema, deriveConnectorFields, toConnectorFormValue } from './connector-form';
+import {
+  ConnectorFormValue,
+  connectorsFormSchema,
+  deriveConnectorFields,
+  formatConnectorCount,
+  formatPowerKw,
+  getConnectorCurrentMixLabel,
+  getConnectorTypesLabel,
+  toConnectorFormValue,
+} from './connector-form';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -81,6 +90,26 @@ function getSelectOptions(field: CustomField) {
 
   const rawOptions = (field.options as { options?: unknown }).options;
   return Array.isArray(rawOptions) ? rawOptions.filter((option): option is string => typeof option === 'string') : [];
+}
+
+function validateCustomFieldValue(field: CustomField, rawValue: string) {
+  if (rawValue.trim() === '') {
+    return field.isRequired ? `${field.label} is required.` : true;
+  }
+
+  if (field.type === 'number' && !Number.isFinite(Number(rawValue))) {
+    return `${field.label} must be a valid number.`;
+  }
+
+  if (field.type === 'json') {
+    try {
+      JSON.parse(rawValue);
+    } catch {
+      return `Enter valid JSON for ${field.label}.`;
+    }
+  }
+
+  return true;
 }
 
 function isUuid(value: string | null | undefined): value is string {
@@ -193,6 +222,7 @@ export function StationForm({
   actionSlot?: ReactNode;
 }) {
   const [submitError, setSubmitError] = useState('');
+  const [templateDraftMessage, setTemplateDraftMessage] = useState('');
   const editableBrands = useMemo(() => buildEditableBrands(config, initial), [config, initial]);
   const editableModels = useMemo(() => buildEditableModels(config, initial), [config, initial]);
   const form = useForm<FormValues>({
@@ -206,17 +236,25 @@ export function StationForm({
   const selectedBrandId = useWatch({ control: form.control, name: 'brandId' });
   const selectedModelId = useWatch({ control: form.control, name: 'modelId' });
   const watchedConnectors = useWatch({ control: form.control, name: 'connectors' });
+  const customFieldErrors = form.formState.errors.customFields as Record<string, { message?: string }> | undefined;
 
   const brandOptions = useMemo(
-    () => [...editableBrands].sort((left, right) => left.name.localeCompare(right.name)),
-    [editableBrands],
+    () =>
+      [...editableBrands]
+        .filter((brand) => brand.isActive || brand.id === selectedBrandId || brand.id === initial?.brandId)
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [editableBrands, initial?.brandId, selectedBrandId],
   );
   const modelOptions = useMemo(
     () =>
       [...editableModels]
-        .filter((model) => model.brandId === selectedBrandId)
+        .filter(
+          (model) =>
+            model.brandId === selectedBrandId &&
+            (model.isActive || model.id === selectedModelId || model.id === initial?.modelId),
+        )
         .sort((left, right) => left.name.localeCompare(right.name)),
-    [editableModels, selectedBrandId],
+    [editableModels, initial?.modelId, selectedBrandId, selectedModelId],
   );
   const selectedModel = useMemo(
     () => editableModels.find((model) => model.id === selectedModelId) ?? null,
@@ -229,6 +267,13 @@ export function StationForm({
   const derivedFields = useMemo(
     () => deriveConnectorFields((watchedConnectors ?? []) as ConnectorFormValue[]),
     [watchedConnectors],
+  );
+  const selectedModelTemplateFields = useMemo(
+    () =>
+      selectedModel
+        ? deriveConnectorFields(selectedModel.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector)))
+        : null,
+    [selectedModel],
   );
 
   useEffect(() => {
@@ -244,12 +289,8 @@ export function StationForm({
   }, [form, modelOptions, selectedModelId]);
 
   useEffect(() => {
-    if (!selectedModel || fields.length > 0 || selectedModel.latestTemplateConnectors.length === 0) {
-      return;
-    }
-
-    replace(selectedModel.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector)));
-  }, [fields.length, replace, selectedModel]);
+    setTemplateDraftMessage('');
+  }, [selectedModelId]);
 
   return (
     <form
@@ -332,7 +373,7 @@ export function StationForm({
           </div>
           <div className='field'>
             <label htmlFor='brandId'>Brand</label>
-            <Select id='brandId' {...form.register('brandId')}>
+            <Select id='brandId' {...form.register('brandId')} disabled={brandOptions.length === 0}>
               <option value=''>Select a brand</option>
               {brandOptions.map((brand) => (
                 <option key={brand.id} value={brand.id}>
@@ -341,10 +382,13 @@ export function StationForm({
               ))}
             </Select>
             {form.formState.errors.brandId ? <p className='form-error'>{form.formState.errors.brandId.message}</p> : null}
+            {brandOptions.length === 0 ? (
+              <p className='field-hint'>No active catalog brands are available yet. Ask an admin to add one in Station Catalog.</p>
+            ) : null}
           </div>
           <div className='field'>
             <label htmlFor='modelId'>Model</label>
-            <Select id='modelId' {...form.register('modelId')} disabled={!selectedBrandId}>
+            <Select id='modelId' {...form.register('modelId')} disabled={!selectedBrandId || modelOptions.length === 0}>
               <option value=''>{selectedBrandId ? 'Select a model' : 'Choose a brand first'}</option>
               {modelOptions.map((model) => (
                 <option key={model.id} value={model.id}>
@@ -353,6 +397,9 @@ export function StationForm({
               ))}
             </Select>
             {form.formState.errors.modelId ? <p className='form-error'>{form.formState.errors.modelId.message}</p> : null}
+            {selectedBrandId && modelOptions.length === 0 ? (
+              <p className='field-hint'>No active models are available for the selected brand yet.</p>
+            ) : null}
           </div>
         </div>
 
@@ -361,12 +408,74 @@ export function StationForm({
             <div className='inline-cluster'>
               {selectedBrand ? <Badge tone={selectedBrand.isActive ? 'info' : 'warning'}>{selectedBrand.name}</Badge> : null}
               {selectedModel ? <Badge tone={selectedModel.isActive ? 'success' : 'warning'}>{selectedModel.name}</Badge> : null}
-              {selectedModel?.latestTemplateVersion ? <Badge>Template v{selectedModel.latestTemplateVersion}</Badge> : null}
+              {selectedModel ? (
+                <Badge>{selectedModel.latestTemplateVersion ? `Template v${selectedModel.latestTemplateVersion}` : 'No template yet'}</Badge>
+              ) : null}
             </div>
             {selectedModel?.description ? <p className='muted'>{selectedModel.description}</p> : null}
-            {selectedModel && !selectedModel.description ? (
-              <p className='muted'>No model description is stored yet.</p>
+            {selectedModel && !selectedModel.description ? <p className='muted'>No model description is stored yet.</p> : null}
+            {selectedModelTemplateFields ? (
+              <div className='detail-grid'>
+                <div className='subtle-box'>
+                  <p className='eyebrow'>Template rows</p>
+                  <strong>{formatConnectorCount(selectedModelTemplateFields.summary.count)}</strong>
+                  <p className='muted'>{getConnectorTypesLabel(selectedModelTemplateFields.summary)}</p>
+                </div>
+                <div className='subtle-box'>
+                  <p className='eyebrow'>Current mix</p>
+                  <strong>{getConnectorCurrentMixLabel(selectedModelTemplateFields.summary)}</strong>
+                  <p className='muted'>Previewed from the latest stored model template.</p>
+                </div>
+                <div className='subtle-box'>
+                  <p className='eyebrow'>Max power</p>
+                  <strong>
+                    {selectedModelTemplateFields.summary.count > 0
+                      ? `${formatPowerKw(selectedModelTemplateFields.summary.maxPowerKw)} kW`
+                      : 'Not derived'}
+                  </strong>
+                  <p className='muted'>Read-only template compatibility summary.</p>
+                </div>
+              </div>
             ) : null}
+            {selectedModel ? (
+              <>
+                <div className='section-actions'>
+                  <Button
+                    type='button'
+                    variant='secondary'
+                    disabled={selectedModel.latestTemplateConnectors.length === 0}
+                    onClick={() => {
+                      if (selectedModel.latestTemplateConnectors.length === 0) {
+                        return;
+                      }
+
+                      const confirmed = window.confirm(
+                        'Replace the current draft connector rows with the latest template from the selected model? Unsaved connector edits in this form will be overwritten.',
+                      );
+
+                      if (!confirmed) {
+                        return;
+                      }
+
+                      replace(selectedModel.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector)));
+                      setTemplateDraftMessage(
+                        selectedModel.latestTemplateVersion
+                          ? `Loaded template v${selectedModel.latestTemplateVersion} into the form. Save the station to persist these connector rows.`
+                          : 'Loaded the selected model template into the form. Save the station to persist these connector rows.',
+                      );
+                    }}
+                  >
+                    Load selected model template
+                  </Button>
+                </div>
+                <p className='field-hint'>
+                  {selectedModel.latestTemplateConnectors.length === 0
+                    ? 'This model has no stored connector template yet.'
+                    : 'This replaces only the draft connector rows in this form until you save.'}
+                </p>
+              </>
+            ) : null}
+            {templateDraftMessage ? <p className='muted' role='status'>{templateDraftMessage}</p> : null}
           </div>
         ) : null}
       </section>
@@ -408,7 +517,11 @@ export function StationForm({
           </div>
           <div className='field'>
             <label htmlFor='derivedPowerKw'>Derived max power (kW)</label>
-            <Input id='derivedPowerKw' value={derivedFields.powerKw ?? ''} readOnly />
+            <Input
+              id='derivedPowerKw'
+              value={derivedFields.powerKw === null ? 'Not derived yet' : formatPowerKw(derivedFields.powerKw)}
+              readOnly
+            />
             <p className='field-hint'>Read-only. Derived from the highest connector power.</p>
           </div>
         </div>
@@ -425,6 +538,7 @@ export function StationForm({
         append={append}
         remove={remove}
         errors={form.formState.errors}
+        values={(watchedConnectors ?? []) as ConnectorFormValue[]}
       />
 
       <section className='form-section'>
@@ -446,29 +560,52 @@ export function StationForm({
                     {field.label} {field.isRequired ? <Badge tone='warning'>Required</Badge> : null}
                   </label>
                   {field.type === 'select' ? (
-                    <Select id={field.key} {...form.register(fieldName)}>
+                    <Select
+                      id={field.key}
+                      {...form.register(fieldName, { validate: (value) => validateCustomFieldValue(field, value) })}
+                    >
                       <option value=''>Select an option</option>
                       {options.map((option) => <option key={option} value={option}>{option}</option>)}
                     </Select>
                   ) : null}
                   {field.type === 'boolean' ? (
-                    <Select id={field.key} {...form.register(fieldName)}>
+                    <Select
+                      id={field.key}
+                      {...form.register(fieldName, { validate: (value) => validateCustomFieldValue(field, value) })}
+                    >
                       <option value=''>Not set</option>
                       <option value='true'>Yes</option>
                       <option value='false'>No</option>
                     </Select>
                   ) : null}
                   {field.type === 'date' ? (
-                    <Input id={field.key} type='date' {...form.register(fieldName)} />
+                    <Input
+                      id={field.key}
+                      type='date'
+                      {...form.register(fieldName, { validate: (value) => validateCustomFieldValue(field, value) })}
+                    />
                   ) : null}
                   {field.type === 'json' ? (
-                    <Textarea id={field.key} {...form.register(fieldName)} placeholder='Enter valid JSON' />
+                    <Textarea
+                      id={field.key}
+                      {...form.register(fieldName, { validate: (value) => validateCustomFieldValue(field, value) })}
+                      placeholder='Enter valid JSON'
+                    />
                   ) : null}
                   {field.type === 'text' ? (
-                    <Textarea id={field.key} {...form.register(fieldName)} placeholder={field.label} />
+                    <Textarea
+                      id={field.key}
+                      {...form.register(fieldName, { validate: (value) => validateCustomFieldValue(field, value) })}
+                      placeholder={field.label}
+                    />
                   ) : null}
                   {field.type === 'number' ? (
-                    <Input id={field.key} type='number' step='0.01' {...form.register(fieldName)} />
+                    <Input
+                      id={field.key}
+                      type='number'
+                      step='0.01'
+                      {...form.register(fieldName, { validate: (value) => validateCustomFieldValue(field, value) })}
+                    />
                   ) : null}
                   {field.type !== 'select' &&
                   field.type !== 'boolean' &&
@@ -476,7 +613,13 @@ export function StationForm({
                   field.type !== 'json' &&
                   field.type !== 'text' &&
                   field.type !== 'number' ? (
-                    <Input id={field.key} {...form.register(fieldName)} />
+                    <Input
+                      id={field.key}
+                      {...form.register(fieldName, { validate: (value) => validateCustomFieldValue(field, value) })}
+                    />
+                  ) : null}
+                  {customFieldErrors?.[field.key]?.message ? (
+                    <p className='form-error'>{String(customFieldErrors[field.key]?.message)}</p>
                   ) : null}
                   <p className='field-hint'>{field.type.toUpperCase()} field · key: {field.key}</p>
                 </div>

@@ -11,6 +11,12 @@ import { Button } from '@/components/ui/button';
 import { ConfirmButton } from '@/components/ui/confirm-button';
 import { StateCard } from '@/components/ui/state-card';
 import { TableShell } from '@/components/ui/table-shell';
+import {
+  formatConnectorCount,
+  formatPowerKw,
+  getConnectorCurrentMixLabel,
+  getConnectorTypesLabel,
+} from './connector-form';
 
 type QueryValue = string | number | boolean | undefined;
 
@@ -33,10 +39,12 @@ function getStatusTone(status: string) {
 export function StationsTable({
   query,
   visibleFields,
+  hasActiveFilters,
   onPageChange,
 }: {
   query: Record<string, QueryValue>;
   visibleFields: CustomField[];
+  hasActiveFilters: boolean;
   onPageChange: (page: number) => void;
 }) {
   const { canWrite, isAdmin } = useAuth();
@@ -87,7 +95,11 @@ export function StationsTable({
       }
     >
       {rows.length === 0 ? (
-        <p className='table-empty'>No stations match the current filters.</p>
+        <p className='table-empty'>
+          {hasActiveFilters
+            ? 'No stations match the current filters. Try broadening the search or clearing one of the connector-related filters.'
+            : 'No stations have been created yet. Create the first station to start managing the fleet here.'}
+        </p>
       ) : (
         <>
           <div className='table-wrap'>
@@ -111,13 +123,14 @@ export function StationsTable({
                           <strong>{station.name}</strong>
                           <div className='inline-cluster'>
                             <Badge tone='info'>{station.code}</Badge>
-                            <Badge>{station.connectorSummary.hasDC ? 'DC capable' : 'AC only'}</Badge>
-                            <Badge>{station.connectorSummary.count} connector{station.connectorSummary.count === 1 ? '' : 's'}</Badge>
+                            <Badge>{formatConnectorCount(station.connectorSummary.count)}</Badge>
+                            <Badge>{getConnectorCurrentMixLabel(station.connectorSummary)}</Badge>
+                            <Badge>Max {formatPowerKw(station.connectorSummary.maxPowerKw)} kW</Badge>
                           </div>
                         </div>
                         <div className='muted'>
                           <div>Brand: {station.brand} · {station.model}</div>
-                          <div>Types: {station.connectorSummary.types.join(', ') || station.socketType}</div>
+                          <div>Connector types: {getConnectorTypesLabel(station.connectorSummary)}</div>
                           <div>Serial: {station.serialNumber}</div>
                         </div>
                       </div>
@@ -145,7 +158,9 @@ export function StationsTable({
                     </td>
                     <td>
                       <div>{station.location}</div>
-                      <div className='muted'>Max {station.connectorSummary.maxPowerKw} kW</div>
+                      <div className='muted'>
+                        {station.modelTemplateVersion ? `Template v${station.modelTemplateVersion}` : 'Manual connector setup'}
+                      </div>
                     </td>
                     {visibleFields.map((field) => (
                       <td key={field.id}>{formatCustomValue((station.customFields ?? {})[field.key])}</td>

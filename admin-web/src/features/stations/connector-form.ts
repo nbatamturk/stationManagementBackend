@@ -37,6 +37,7 @@ export const connectorsFormSchema = z
 export type ConnectorFormValue = z.infer<typeof connectorFormSchema>;
 
 type ConnectorLike = StationConnectorInput | StationConnector;
+type ConnectorSummaryLike = Pick<StationConnectorSummary, 'types' | 'maxPowerKw' | 'hasAC' | 'hasDC' | 'count'>;
 
 export function createEmptyConnector(order = 1): ConnectorFormValue {
   return {
@@ -105,4 +106,49 @@ export function deriveConnectorFields(connectors: ConnectorFormValue[]) {
     powerKw: summary.count === 0 ? null : summary.maxPowerKw,
     socketType: summary.count === 0 ? '' : summary.types.join(', '),
   };
+}
+
+export function formatConnectorCount(count: number) {
+  return `${count} connector${count === 1 ? '' : 's'}`;
+}
+
+export function formatPowerKw(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+}
+
+export function getConnectorCurrentMixLabel(summary: Pick<ConnectorSummaryLike, 'count' | 'hasAC' | 'hasDC'>) {
+  if (summary.count === 0) {
+    return 'No connectors';
+  }
+
+  if (summary.hasAC && summary.hasDC) {
+    return 'AC + DC';
+  }
+
+  if (summary.hasDC) {
+    return 'DC only';
+  }
+
+  return 'AC only';
+}
+
+export function getConnectorTypesLabel(summary: Pick<ConnectorSummaryLike, 'count' | 'types'>) {
+  if (summary.count === 0 || summary.types.length === 0) {
+    return 'No connector types';
+  }
+
+  return summary.types.join(', ');
+}
+
+export function getConnectorSummaryLabel(summary: ConnectorSummaryLike) {
+  if (summary.count === 0) {
+    return 'No connectors configured';
+  }
+
+  return [
+    formatConnectorCount(summary.count),
+    getConnectorTypesLabel(summary),
+    getConnectorCurrentMixLabel(summary),
+    `Max ${formatPowerKw(summary.maxPowerKw)} kW`,
+  ].join(' · ');
 }

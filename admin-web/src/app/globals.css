@@ -81,6 +81,11 @@ p {
   gap: 10px;
 }
 
+.state-card-success {
+  border-color: rgba(26, 127, 82, 0.24);
+  background: #f2fbf6;
+}
+
 .state-card-warning {
   border-color: rgba(168, 100, 0, 0.35);
   background: #fff9ef;

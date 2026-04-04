@@ -5,7 +5,17 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ConnectorFormValue, connectorTypeOptions, createEmptyConnector, currentTypeOptions } from './connector-form';
+import {
+  ConnectorFormValue,
+  connectorTypeOptions,
+  createEmptyConnector,
+  currentTypeOptions,
+  deriveConnectorFields,
+  formatConnectorCount,
+  formatPowerKw,
+  getConnectorCurrentMixLabel,
+  getConnectorTypesLabel,
+} from './connector-form';
 
 type ConnectorError = {
   connectorNo?: { message?: string };
@@ -26,6 +36,7 @@ export function ConnectorFieldsEditor<TFormValues extends ConnectorFormShape>({
   append,
   remove,
   errors,
+  values,
   disabled = false,
   title = 'Connectors',
   description = 'Connector rows are the writable source of truth for this station or template.',
@@ -35,6 +46,7 @@ export function ConnectorFieldsEditor<TFormValues extends ConnectorFormShape>({
   append: (value: ConnectorFormValue) => void;
   remove: (index: number) => void;
   errors?: FieldErrors<TFormValues>;
+  values?: ConnectorFormValue[];
   disabled?: boolean;
   title?: string;
   description?: string;
@@ -44,7 +56,12 @@ export function ConnectorFieldsEditor<TFormValues extends ConnectorFormShape>({
     errors?.connectors && !Array.isArray(errors.connectors) && 'message' in errors.connectors
       ? String(errors.connectors.message ?? '')
       : '';
-  const nextConnectorNo = fields.reduce((maxValue, field) => Math.max(maxValue, Number(field.connectorNo) || 0), 0) + 1;
+  const connectorValues = fields.map((field, index) => values?.[index] ?? field);
+  const nextConnectorNo = connectorValues.reduce(
+    (maxValue, field) => Math.max(maxValue, Number(field.connectorNo) || 0),
+    0,
+  ) + 1;
+  const preview = deriveConnectorFields(connectorValues);
 
   return (
     <section className='form-section'>
@@ -65,6 +82,24 @@ export function ConnectorFieldsEditor<TFormValues extends ConnectorFormShape>({
 
       {rootError ? <p className='form-error'>{rootError}</p> : null}
 
+      <div className='subtle-box page-stack'>
+        <div className='inline-cluster'>
+          <Badge tone={preview.summary.count > 0 ? 'info' : 'neutral'}>
+            {formatConnectorCount(preview.summary.count)}
+          </Badge>
+          <Badge tone={preview.summary.hasDC ? 'warning' : 'info'}>
+            {getConnectorCurrentMixLabel(preview.summary)}
+          </Badge>
+          <Badge>{getConnectorTypesLabel(preview.summary)}</Badge>
+          {preview.summary.count > 0 ? <Badge>Max {formatPowerKw(preview.summary.maxPowerKw)} kW</Badge> : null}
+        </div>
+        <p className='muted'>
+          {preview.summary.count > 0
+            ? 'This live summary matches the connector rows that will be submitted.'
+            : 'Add connector rows or load a model template to derive compatibility fields.'}
+        </p>
+      </div>
+
       {fields.length === 0 ? (
         <div className='subtle-box page-stack'>
           <p className='muted'>No connectors added yet.</p>
@@ -82,6 +117,7 @@ export function ConnectorFieldsEditor<TFormValues extends ConnectorFormShape>({
       ) : (
         <div className='connector-editor-list'>
           {fields.map((field, index) => {
+            const connector = connectorValues[index] ?? field;
             const fieldError = connectorErrors[index] ?? {};
             const connectorNoName = `connectors.${index}.connectorNo` as Path<TFormValues>;
             const connectorTypeName = `connectors.${index}.connectorType` as Path<TFormValues>;
@@ -94,10 +130,15 @@ export function ConnectorFieldsEditor<TFormValues extends ConnectorFormShape>({
               <div key={field.id} className='subtle-box connector-card'>
                 <div className='stack-row' style={{ justifyContent: 'space-between' }}>
                   <div className='inline-cluster'>
-                    <strong>Connector {index + 1}</strong>
-                    <Badge tone={field.isActive ? 'success' : 'warning'}>
-                      {field.isActive ? 'Active' : 'Inactive'}
+                    <strong>Connector {connector.connectorNo || index + 1}</strong>
+                    <Badge tone={connector.isActive ? 'success' : 'warning'}>
+                      {connector.isActive ? 'Active' : 'Inactive'}
                     </Badge>
+                    <Badge>{connector.connectorType}</Badge>
+                    <Badge>{connector.currentType}</Badge>
+                    {Number.isFinite(connector.powerKw) && connector.powerKw > 0 ? (
+                      <Badge>{formatPowerKw(connector.powerKw)} kW</Badge>
+                    ) : null}
                   </div>
                   <Button
                     type='button'

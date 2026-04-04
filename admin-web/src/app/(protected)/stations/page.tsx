@@ -56,6 +56,7 @@ export default function StationsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsKey = searchParams.toString();
+  const notice = searchParams.get('notice');
   const page = Number(searchParams.get('page') ?? '1');
   const [filters, setFilters] = useState<FilterState>(() => readFilters(new URLSearchParams(searchParamsKey)));
   const customFields = useQuery({ queryKey: ['custom-fields-for-stations'], queryFn: () => customFieldsClient.list(true) });
@@ -79,6 +80,19 @@ export default function StationsPage() {
     .filter((field) => field.isVisibleInList)
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .slice(0, 3);
+  const pageNotice =
+    notice === 'station-created'
+      ? {
+          title: 'Station created',
+          description: 'The new station is now available in the inventory list. Review the connector-aware summary below or open the detail page from the table.',
+        }
+      : null;
+  const hasActiveFilters =
+    Boolean(filters.search.trim()) ||
+    Boolean(filters.status) ||
+    Boolean(filters.currentType) ||
+    filters.archiveView !== 'active' ||
+    Object.values(filters.customFilters).some((value) => value.trim().length > 0);
 
   const updateUrl = (nextFilters: FilterState, nextPage = 1) => {
     const params = new URLSearchParams();
@@ -161,6 +175,8 @@ export default function StationsPage() {
         title='Stations'
         description='Fast fleet search, sorting, and action handling for daily station management.'
       />
+
+      {pageNotice ? <StateCard title={pageNotice.title} description={pageNotice.description} tone='success' /> : null}
 
       <form className='card page-stack' onSubmit={handleSubmit}>
         <div className='toolbar'>
@@ -368,6 +384,7 @@ export default function StationsPage() {
       <StationsTable
         query={query}
         visibleFields={visibleFields}
+        hasActiveFilters={hasActiveFilters}
         onPageChange={(nextPage) => updateUrl(filters, nextPage)}
       />
     </div>
