@@ -357,6 +357,8 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         brandId: string;
         name: string;
         description?: string | null;
+        imageUrl?: string | null;
+        logoUrl?: string | null;
         isActive?: boolean;
       };
 
@@ -388,6 +390,8 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         brandId?: string;
         name?: string;
         description?: string | null;
+        imageUrl?: string | null;
+        logoUrl?: string | null;
         isActive?: boolean;
       };
 

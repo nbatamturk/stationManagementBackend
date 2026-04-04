@@ -344,6 +344,8 @@ export const stationCatalogModelCreateBodySchema = Type.Object(
     brandId: uuidSchema,
     name: Type.String({ minLength: 1, maxLength: 120 }),
     description: Type.Optional(catalogDescriptionSchema),
+    imageUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+    logoUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
     isActive: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
@@ -354,6 +356,8 @@ export const stationCatalogModelUpdateBodySchema = Type.Object(
     brandId: Type.Optional(uuidSchema),
     name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     description: Type.Optional(catalogDescriptionSchema),
+    imageUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
+    logoUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
     isActive: Type.Optional(Type.Boolean()),
   },
   {

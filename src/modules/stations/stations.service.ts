@@ -182,6 +182,8 @@ type StationCatalogModelCreatePayload = {
   brandId: string;
   name: string;
   description?: string | null;
+  imageUrl?: string | null;
+  logoUrl?: string | null;
   isActive?: boolean;
 };
 
@@ -682,6 +684,8 @@ export class StationsService {
             brandId: normalized.brandId,
             name: normalized.name,
             description: normalized.description,
+            imageUrl: normalized.imageUrl,
+            logoUrl: normalized.logoUrl,
             isActive: normalized.isActive ?? true,
           },
           tx,
@@ -750,6 +754,8 @@ export class StationsService {
             brandId: normalized.brandId,
             name: normalized.name,
             description: normalized.description,
+            imageUrl: normalized.imageUrl,
+            logoUrl: normalized.logoUrl,
             isActive: normalized.isActive,
           },
           tx,
@@ -1797,6 +1803,8 @@ export class StationsService {
         emptyAs: 'null',
         maxLength: 4000,
       }),
+      imageUrl: this.normalizeCatalogModelAssetUrl(payload.imageUrl, 'Station model image URL'),
+      logoUrl: this.normalizeCatalogModelAssetUrl(payload.logoUrl, 'Station model logo URL'),
       isActive: payload.isActive,
     };
   }
@@ -1815,8 +1823,28 @@ export class StationsService {
               emptyAs: 'null',
               maxLength: 4000,
             }),
+      imageUrl:
+        payload.imageUrl === undefined
+          ? undefined
+          : this.normalizeCatalogModelAssetUrl(payload.imageUrl, 'Station model image URL'),
+      logoUrl:
+        payload.logoUrl === undefined
+          ? undefined
+          : this.normalizeCatalogModelAssetUrl(payload.logoUrl, 'Station model logo URL'),
       isActive: payload.isActive,
     };
+  }
+
+  private normalizeCatalogModelAssetUrl(value: string | null | undefined, label: string) {
+    if (value === null) {
+      return null;
+    }
+
+    return normalizeOptionalSingleLineText(value, label, {
+      collapseWhitespace: false,
+      emptyAs: 'null',
+      maxLength: 2000,
+    });
   }
 
   private getCatalogModelImageUrl(model: ModelRecord): string | null {
