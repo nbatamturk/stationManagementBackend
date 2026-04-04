@@ -13,6 +13,7 @@ export interface StationListItem
     | 'model'
     | 'powerKw'
     | 'currentType'
+    | 'socketType'
     | 'status'
     | 'lastTestDate'
     | 'updatedAt'

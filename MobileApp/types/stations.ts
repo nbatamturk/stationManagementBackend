@@ -6,6 +6,8 @@ export type StationEditableStatus = 'active' | 'maintenance' | 'inactive' | 'fau
 export type StationStatus = StationEditableStatus;
 export type StationSortBy = 'name' | 'updatedAt' | 'powerKw';
 export type StationListStatusFilter = 'all' | 'archived' | StationEditableStatus;
+export type StationDetailSection = 'overview' | 'tests' | 'issues';
+export type StationDetailComposer = 'test' | 'issue';
 
 export interface StationSummary {
   totalIssueCount: number;
@@ -71,7 +73,6 @@ export interface StationCatalogModel {
   name: string;
   description: string | null;
   imageUrl: string | null;
-  logoUrl: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

@@ -8,6 +8,8 @@ import { getApiBaseUrl } from '@/lib/api/http';
 
 type AuthenticatedImageProps = Omit<ImageProps, 'source'> & {
   uri: string;
+  fallback?: React.ReactNode;
+  loadingFallback?: React.ReactNode;
 };
 
 const normalizeUri = (uri: string): string => {
@@ -31,6 +33,9 @@ const getImageMimeType = (contentTypeHeader: string | null): string => {
 
 export const AuthenticatedImage = ({
   uri,
+  fallback = null,
+  loadingFallback = null,
+  onError,
   ...props
 }: AuthenticatedImageProps): React.JSX.Element => {
   const { status } = useAuth();
@@ -40,8 +45,9 @@ export const AuthenticatedImage = ({
     () => requiresAuthenticatedFetch(uri, normalizedUri),
     [normalizedUri, uri],
   );
-  const [resolvedUri, setResolvedUri] = useState<string | null>(
-    shouldUseProtectedFetch ? null : normalizedUri,
+  const [resolvedUri, setResolvedUri] = useState<string | null>(shouldUseProtectedFetch ? null : normalizedUri);
+  const [resolutionState, setResolutionState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
+    !uri ? 'idle' : shouldUseProtectedFetch ? 'loading' : 'ready',
   );
 
   useEffect(() => {
@@ -50,6 +56,7 @@ export const AuthenticatedImage = ({
 
     if (!uri) {
       setResolvedUri(null);
+      setResolutionState('idle');
       return () => {
         abortController.abort();
       };
@@ -57,19 +64,30 @@ export const AuthenticatedImage = ({
 
     if (!shouldUseProtectedFetch) {
       setResolvedUri(normalizedUri);
+      setResolutionState('ready');
       return () => {
         abortController.abort();
       };
     }
 
-    if (status !== 'authenticated' || !token) {
+    if (status === 'loading') {
       setResolvedUri(null);
+      setResolutionState('loading');
+      return () => {
+        abortController.abort();
+      };
+    }
+
+    if (!token || status === 'unauthenticated') {
+      setResolvedUri(null);
+      setResolutionState('failed');
       return () => {
         abortController.abort();
       };
     }
 
     setResolvedUri(null);
+    setResolutionState('loading');
 
     void (async () => {
       try {
@@ -93,12 +111,14 @@ export const AuthenticatedImage = ({
 
         const base64Payload = Buffer.from(bytes).toString('base64');
         setResolvedUri(`data:${mimeType};base64,${base64Payload}`);
+        setResolutionState('ready');
       } catch {
         if (!isActive || abortController.signal.aborted) {
           return;
         }
 
         setResolvedUri(null);
+        setResolutionState('failed');
       }
     })();
 
@@ -108,9 +128,24 @@ export const AuthenticatedImage = ({
     };
   }, [normalizedUri, shouldUseProtectedFetch, status, token, uri]);
 
-  if (!resolvedUri) {
-    return <></>;
+  if (resolutionState === 'loading') {
+    return <>{loadingFallback}</>;
   }
 
-  return <Image key={`${uri}:${token ?? 'anon'}:${status}`} source={{ uri: resolvedUri }} {...props} />;
+  if (!resolvedUri || resolutionState === 'failed') {
+    return <>{fallback}</>;
+  }
+
+  return (
+    <Image
+      key={`${uri}:${token ?? 'anon'}:${status}`}
+      source={{ uri: resolvedUri }}
+      onError={(event) => {
+        setResolvedUri(null);
+        setResolutionState('failed');
+        onError?.(event);
+      }}
+      {...props}
+    />
+  );
 };

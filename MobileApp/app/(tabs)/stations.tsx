@@ -2,7 +2,9 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
+  type GestureResponderEvent,
   Modal,
   Pressable,
   ScrollView,
@@ -246,6 +248,10 @@ export default function StationListScreen(): React.JSX.Element {
   const stationRequestIdRef = useRef(0);
   const metadataRequestIdRef = useRef(0);
   const lastHandledSearchParamRef = useRef(initialSearch);
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const isClosingSheetRef = useRef(false);
+  const sheetDragStartYRef = useRef<number | null>(null);
+  const sheetDragOffsetRef = useRef(0);
 
   useEffect(() => {
     const nextSearch = typeof params.search === 'string' ? params.search.trim() : '';
@@ -521,6 +527,26 @@ export default function StationListScreen(): React.JSX.Element {
     showAdvancedFilters,
   ]);
 
+  useEffect(() => {
+    if (!showAdvancedFilters) {
+      sheetTranslateY.stopAnimation();
+      sheetTranslateY.setValue(0);
+      isClosingSheetRef.current = false;
+      sheetDragStartYRef.current = null;
+      sheetDragOffsetRef.current = 0;
+      return;
+    }
+
+    sheetTranslateY.setValue(28);
+    Animated.spring(sheetTranslateY, {
+      toValue: 0,
+      damping: 20,
+      stiffness: 220,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start();
+  }, [sheetTranslateY, showAdvancedFilters]);
+
   const clearAllFilters = useCallback(() => {
     const clearedFilters = createDefaultFilters();
     setSearchText('');
@@ -604,7 +630,6 @@ export default function StationListScreen(): React.JSX.Element {
     }
 
     setAppliedFilters(draftFilters);
-    setShowAdvancedFilters(false);
   };
 
   const resetAdvancedFilters = (): void => {
@@ -616,6 +641,79 @@ export default function StationListScreen(): React.JSX.Element {
       customFieldFilters: [],
     }));
   };
+
+  const closeAdvancedFilters = useCallback(() => {
+    if (isClosingSheetRef.current) {
+      return;
+    }
+
+    isClosingSheetRef.current = true;
+    sheetDragStartYRef.current = null;
+
+    Animated.timing(sheetTranslateY, {
+      toValue: 420,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setShowAdvancedFilters(false);
+      }
+
+      sheetTranslateY.setValue(0);
+      sheetDragOffsetRef.current = 0;
+      isClosingSheetRef.current = false;
+    });
+  }, [sheetTranslateY]);
+
+  const restoreAdvancedFiltersPosition = useCallback(() => {
+    Animated.spring(sheetTranslateY, {
+      toValue: 0,
+      damping: 18,
+      stiffness: 230,
+      mass: 0.9,
+      useNativeDriver: true,
+    }).start(() => {
+      sheetDragOffsetRef.current = 0;
+    });
+  }, [sheetTranslateY]);
+
+  const handleSheetDragStart = useCallback(
+    (event: GestureResponderEvent) => {
+      if (!showAdvancedFilters || isClosingSheetRef.current) {
+        return;
+      }
+
+      sheetTranslateY.stopAnimation();
+      sheetDragStartYRef.current = event.nativeEvent.pageY;
+      sheetDragOffsetRef.current = 0;
+    },
+    [sheetTranslateY, showAdvancedFilters],
+  );
+
+  const handleSheetDragMove = useCallback(
+    (event: GestureResponderEvent) => {
+      if (sheetDragStartYRef.current === null || isClosingSheetRef.current) {
+        return;
+      }
+
+      const nextOffset = Math.max(0, event.nativeEvent.pageY - sheetDragStartYRef.current);
+      sheetDragOffsetRef.current = nextOffset;
+      sheetTranslateY.setValue(nextOffset);
+    },
+    [sheetTranslateY],
+  );
+
+  const finishSheetDrag = useCallback(() => {
+    const draggedOffset = sheetDragOffsetRef.current;
+    sheetDragStartYRef.current = null;
+
+    if (draggedOffset > 96) {
+      closeAdvancedFilters();
+      return;
+    }
+
+    restoreAdvancedFiltersPosition();
+  }, [closeAdvancedFilters, restoreAdvancedFiltersPosition]);
 
   const renderStationCard = ({ item }: { item: StationListItem }): React.JSX.Element => (
     <Pressable
@@ -633,11 +731,11 @@ export default function StationListScreen(): React.JSX.Element {
             {item.brand} • {item.model}
           </Text>
           <Text style={styles.stationMeta}>
-            {item.connectorSummary.count} connector{item.connectorSummary.count === 1 ? '' : 's'} •{' '}
-            {formatConnectorCapability(item)} • {Math.max(item.connectorSummary.maxPowerKw, item.powerKw)} kW
+            Derived: {item.currentType} • {item.powerKw} kW • {item.socketType || 'No socket types'}
           </Text>
           <Text style={styles.stationMeta}>
-            Types: {formatConnectorTypes(item)}
+            Connectors: {item.connectorSummary.count} connector{item.connectorSummary.count === 1 ? '' : 's'} •{' '}
+            {formatConnectorCapability(item)} • {formatConnectorTypes(item)}
           </Text>
           <Text style={styles.stationMeta}>Last update: {formatDateTime(item.updatedAt)}</Text>
         </View>
@@ -656,7 +754,7 @@ export default function StationListScreen(): React.JSX.Element {
           color="#0F9D58"
         />
         <SummaryPill
-          label={`Max ${Math.max(item.connectorSummary.maxPowerKw, item.powerKw)} kW`}
+          label={`Summary max ${item.connectorSummary.maxPowerKw} kW`}
           backgroundColor="#FFF7E6"
           color="#C17900"
         />
@@ -846,25 +944,44 @@ export default function StationListScreen(): React.JSX.Element {
     <Modal
       visible={showAdvancedFilters}
       transparent
-      animationType="slide"
-      onRequestClose={() => setShowAdvancedFilters(false)}
+      animationType="fade"
+      onRequestClose={closeAdvancedFilters}
     >
       <View style={styles.sheetOverlay}>
-        <Pressable style={styles.sheetBackdrop} onPress={() => setShowAdvancedFilters(false)} />
-        <View style={[styles.sheetPanel, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.advancedHeader}>
-            <View style={styles.advancedHeaderText}>
-              <Text style={styles.advancedTitle}>Advanced Filters</Text>
-              <Text style={styles.advancedSubtitle}>
-                Fine tune brand, model, sort order, and custom fields.
-              </Text>
-            </View>
-            {hasAdvancedDraftChanges ? (
-              <View style={styles.draftBadge}>
-                <Text style={styles.draftBadgeText}>Draft</Text>
+        <Pressable style={styles.sheetBackdrop} onPress={closeAdvancedFilters} />
+        <Animated.View
+          style={[
+            styles.sheetPanel,
+            {
+              paddingBottom: Math.max(insets.bottom, 16) + 12,
+              transform: [{ translateY: sheetTranslateY }],
+            },
+          ]}
+        >
+          <View
+            style={styles.sheetDragArea}
+            onStartShouldSetResponder={() => true}
+            onMoveShouldSetResponder={() => true}
+            onResponderGrant={handleSheetDragStart}
+            onResponderMove={handleSheetDragMove}
+            onResponderRelease={finishSheetDrag}
+            onResponderTerminate={finishSheetDrag}
+            onResponderTerminationRequest={() => false}
+          >
+            <View style={styles.sheetHandle} />
+            <View style={styles.advancedHeader}>
+              <View style={styles.advancedHeaderText}>
+                <Text style={styles.advancedTitle}>Advanced Filters</Text>
+                <Text style={styles.advancedSubtitle}>
+                  Fine tune brand, model, sort order, and custom fields.
+                </Text>
               </View>
-            ) : null}
+              {hasAdvancedDraftChanges ? (
+                <View style={styles.draftBadge}>
+                  <Text style={styles.draftBadgeText}>Draft</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           <ScrollView
@@ -1066,7 +1183,10 @@ export default function StationListScreen(): React.JSX.Element {
           <View style={styles.advancedActionRow}>
             <AppButton
               label="Apply Filters"
-              onPress={applyAdvancedFilters}
+              onPress={() => {
+                applyAdvancedFilters();
+                closeAdvancedFilters();
+              }}
               disabled={Object.keys(customFilterErrors).length > 0}
               style={styles.advancedActionButton}
             />
@@ -1077,7 +1197,7 @@ export default function StationListScreen(): React.JSX.Element {
               style={styles.advancedActionButton}
             />
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -1290,6 +1410,10 @@ const styles = StyleSheet.create({
     gap: 12,
     borderTopWidth: 1,
     borderColor: colors.border,
+  },
+  sheetDragArea: {
+    gap: 12,
+    paddingBottom: 2,
   },
   sheetHandle: {
     alignSelf: 'center',

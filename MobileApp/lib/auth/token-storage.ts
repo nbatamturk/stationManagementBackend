@@ -5,6 +5,9 @@ import type { AuthUser } from '@/features/auth/types';
 const ACCESS_TOKEN_KEY = 'station_mobile_access_token';
 const AUTH_USER_KEY = 'station_mobile_auth_user';
 
+// Mobile data remains backend-authoritative; SecureStore only keeps the local
+// auth session so the app can restore sign-in state between launches.
+
 export const readStoredAccessToken = async (): Promise<string | null> => {
   return SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
 };

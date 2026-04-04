@@ -91,6 +91,17 @@ type StationFilterMetadataFilters = Pick<
 let stationConfigCache: StationConfig | null = null;
 let stationConfigRequest: Promise<StationConfig> | null = null;
 
+const sortStationConnectorValues = <
+  T extends Pick<StationConnectorInput, 'connectorNo'> & Partial<Pick<StationConnectorInput, 'sortOrder'>>,
+>(
+  connectors: T[],
+): T[] =>
+  [...connectors].sort(
+    (left, right) =>
+      (left.sortOrder ?? left.connectorNo) - (right.sortOrder ?? right.connectorNo) ||
+      left.connectorNo - right.connectorNo,
+  );
+
 const formatCustomFieldValue = (value: unknown): string => {
   if (value === null || value === undefined) {
     return '';
@@ -289,7 +300,7 @@ const mapApiStation = (station: ApiStation): Station => ({
   archivedAt: station.archivedAt,
   modelTemplateVersion: station.modelTemplateVersion,
   connectorSummary: station.connectorSummary,
-  connectors: station.connectors?.map(mapApiConnector),
+  connectors: station.connectors ? sortStationConnectorValues(station.connectors.map(mapApiConnector)) : undefined,
   summary: station.summary,
   sync: station.sync,
   customFields: station.customFields ?? {},
@@ -306,6 +317,7 @@ const mapApiStationListItem = (station: ApiStation): StationListItem => ({
   model: station.model,
   powerKw: station.powerKw,
   currentType: station.currentType,
+  socketType: station.socketType,
   status: station.status,
   lastTestDate: station.lastTestDate,
   updatedAt: station.updatedAt,
@@ -437,9 +449,15 @@ export const getStationConfig = async (forceRefresh = false): Promise<StationCon
 
   const request = apiFetch<SuccessResponse<StationConfig>>('/stations/config')
     .then((response) => {
-      stationConfigCache = response.data;
+      stationConfigCache = {
+        ...response.data,
+        models: response.data.models.map((model) => ({
+          ...model,
+          latestTemplateConnectors: sortStationConnectorValues(model.latestTemplateConnectors),
+        })),
+      };
       stationConfigRequest = null;
-      return response.data;
+      return stationConfigCache;
     })
     .catch((error) => {
       stationConfigRequest = null;

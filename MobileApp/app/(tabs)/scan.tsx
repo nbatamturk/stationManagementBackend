@@ -80,7 +80,7 @@ export default function QrScanScreen(): React.JSX.Element {
       const station = await getStationByQrCode(sanitized);
 
       if (station) {
-        router.push({ pathname: '/stations/[id]', params: { id: station.id } });
+        router.push({ pathname: '/stations/[id]', params: { id: station.id, section: 'overview' } });
         return;
       }
 
@@ -88,7 +88,7 @@ export default function QrScanScreen(): React.JSX.Element {
         kind: 'not_found',
         qrCode: sanitized,
         message:
-          'No backend station matches this QR code yet. Create a station only if this code is valid and expected.',
+          'No backend station matches this QR code yet. Create a station only if the QR is valid, expected, and you can assign the correct catalog model and connectors.',
       });
     } catch (error) {
       setScanResult({
@@ -144,11 +144,11 @@ export default function QrScanScreen(): React.JSX.Element {
       <ErrorState
         title="QR code not found"
         description={scanResult.message}
-        actionLabel="Create Station"
+        actionLabel="Create Backend Station"
         onActionPress={() =>
           router.push({ pathname: '/stations/edit', params: { qrCode: scanResult.qrCode } })
         }
-        secondaryActionLabel="Search Stations"
+        secondaryActionLabel="Search Existing Stations"
         onSecondaryActionPress={() =>
           router.push({ pathname: '/stations', params: { search: scanResult.qrCode } })
         }
@@ -197,7 +197,8 @@ export default function QrScanScreen(): React.JSX.Element {
         <Text style={styles.panelTitle}>Scan Station QR</Text>
         <Text style={styles.helperText}>
           Point the camera at the station QR code. Duplicate reads are ignored briefly to prevent
-          accidental double handling.
+          accidental double handling. Successful matches open station detail immediately, where you
+          can jump straight into test or issue entry.
         </Text>
 
         <View style={styles.cameraContainer}>

@@ -4,6 +4,7 @@ export * from './AppMetaFooter';
 export * from './AppScreen';
 export * from './AppTextInput';
 export * from './AuthenticatedImage';
+export * from './CatalogAssetPreview';
 export * from './ErrorState';
 export * from './EmptyState';
 export * from './LabeledSwitch';

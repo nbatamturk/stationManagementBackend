@@ -7,7 +7,7 @@ import {
   AppCard,
   AppScreen,
   AppTextInput,
-  AuthenticatedImage,
+  CatalogAssetPreview,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -26,11 +26,12 @@ import {
   getStationConfig,
 } from '@/features/stations';
 import { addStationTestHistory, getStationTestHistory } from '@/features/test-history';
-import { getApiBaseUrl } from '@/lib/api/http';
 import type {
   CustomFieldDefinition,
   IssueSeverity,
   Station,
+  StationDetailComposer,
+  StationDetailSection,
   StationCatalogModel,
   StationConfig,
   StationIssueRecord,
@@ -44,7 +45,7 @@ const sectionOptions = [
   { label: 'Overview', value: 'overview' },
   { label: 'Tests', value: 'tests' },
   { label: 'Issues', value: 'issues' },
-] as const;
+] as const satisfies Array<{ label: string; value: StationDetailSection }>;
 
 const testResultOptions: Array<{ label: string; value: TestResult }> = [
   { label: 'Pass', value: 'pass' },
@@ -145,30 +146,31 @@ const formatConnectorCapability = (station: Station): string => {
   return station.connectorSummary.hasDC ? 'DC only' : 'AC only';
 };
 
-const resolveMediaUrl = (rawUrl?: string | null): string | null => {
-  if (!rawUrl) {
-    return null;
-  }
+const isStationDetailSection = (value: unknown): value is StationDetailSection =>
+  value === 'overview' || value === 'tests' || value === 'issues';
 
-  if (/^https?:\/\//i.test(rawUrl)) {
-    return rawUrl;
-  }
-
-  if (rawUrl.startsWith('/')) {
-    return `${getApiBaseUrl()}${rawUrl}`;
-  }
-
-  return rawUrl;
-};
+const isStationDetailComposer = (value: unknown): value is StationDetailComposer =>
+  value === 'test' || value === 'issue';
 
 export default function StationDetailScreen(): React.JSX.Element {
   const router = useRouter();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ id?: string }>();
+  const params = useLocalSearchParams<{ id?: string; section?: string; compose?: string }>();
 
   const stationId = typeof params.id === 'string' ? params.id : '';
-  const [activeSection, setActiveSection] =
-    useState<(typeof sectionOptions)[number]['value']>('overview');
+  const requestedSection = isStationDetailSection(params.section) ? params.section : null;
+  const requestedComposer = isStationDetailComposer(params.compose) ? params.compose : null;
+  const [activeSection, setActiveSection] = useState<StationDetailSection>(() => {
+    if (requestedComposer === 'test') {
+      return 'tests';
+    }
+
+    if (requestedComposer === 'issue') {
+      return 'issues';
+    }
+
+    return requestedSection ?? 'overview';
+  });
 
   const [station, setStation] = useState<Station | null>(null);
   const [stationLoading, setStationLoading] = useState(true);
@@ -208,14 +210,9 @@ export default function StationDetailScreen(): React.JSX.Element {
   const [processingLifecycleAction, setProcessingLifecycleAction] = useState(false);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [actionError, setActionError] = useState('');
-  const [catalogImageAspectRatio, setCatalogImageAspectRatio] = useState<number | null>(null);
 
   const canWriteRecords = user?.role === 'admin' || user?.role === 'operator';
   const canManageLifecycle = user?.role === 'admin';
-
-  useEffect(() => {
-    setCatalogImageAspectRatio(null);
-  }, [station?.id, station?.modelId]);
 
   const loadStation = useCallback(
     async (showLoadingState = true) => {
@@ -375,6 +372,34 @@ export default function StationDetailScreen(): React.JSX.Element {
     }, [loadCustomFields, loadIssues, loadStation, loadStationConfig, loadTests]),
   );
 
+  useEffect(() => {
+    if (requestedComposer === 'test') {
+      setActiveSection('tests');
+      setShowTestComposer(true);
+      setShowIssueComposer(false);
+      return;
+    }
+
+    if (requestedComposer === 'issue') {
+      setActiveSection('issues');
+      setShowIssueComposer(true);
+      setShowTestComposer(false);
+      return;
+    }
+
+    if (requestedSection) {
+      setActiveSection(requestedSection);
+
+      if (requestedSection !== 'tests') {
+        setShowTestComposer(false);
+      }
+
+      if (requestedSection !== 'issues') {
+        setShowIssueComposer(false);
+      }
+    }
+  }, [requestedComposer, requestedSection, stationId]);
+
   const catalogModel = useMemo<StationCatalogModel | null>(() => {
     if (!station || !stationConfig) {
       return null;
@@ -391,12 +416,18 @@ export default function StationDetailScreen(): React.JSX.Element {
     return stationConfig.brands.find((brand) => brand.id === station.brandId) ?? null;
   }, [station, stationConfig]);
 
-  const stationMediaUrl = useMemo(
-    () => resolveMediaUrl(catalogModel?.imageUrl ?? catalogModel?.logoUrl ?? null),
-    [catalogModel?.imageUrl, catalogModel?.logoUrl],
-  );
-
   const connectorItems = useMemo(() => station?.connectors ?? [], [station?.connectors]);
+  const connectorTypesValue = useMemo(() => {
+    if (!station) {
+      return '-';
+    }
+
+    if (station.connectorSummary.types.length > 0) {
+      return station.connectorSummary.types.join(', ');
+    }
+
+    return station.socketType || '-';
+  }, [station]);
 
   const customFieldRows = useMemo(() => {
     if (!station) {
@@ -425,6 +456,32 @@ export default function StationDetailScreen(): React.JSX.Element {
 
     return rows.filter((item) => item.value !== '-');
   }, [customDefinitions, station]);
+
+  const openSection = (section: StationDetailSection): void => {
+    setActiveSection(section);
+
+    if (section !== 'tests') {
+      setShowTestComposer(false);
+    }
+
+    if (section !== 'issues') {
+      setShowIssueComposer(false);
+    }
+  };
+
+  const openTestComposer = (): void => {
+    setActiveSection('tests');
+    setShowTestComposer(true);
+    setShowIssueComposer(false);
+    setTestFormError('');
+  };
+
+  const openIssueComposer = (): void => {
+    setActiveSection('issues');
+    setShowIssueComposer(true);
+    setShowTestComposer(false);
+    setIssueFormError('');
+  };
 
   const submitTestRecord = async (): Promise<void> => {
     if (!station || savingTest) {
@@ -724,7 +781,7 @@ export default function StationDetailScreen(): React.JSX.Element {
               key={option.value}
               label={option.label}
               selected={activeSection === option.value}
-              onPress={() => setActiveSection(option.value)}
+              onPress={() => openSection(option.value)}
             />
           ))}
         </View>
@@ -732,12 +789,12 @@ export default function StationDetailScreen(): React.JSX.Element {
 
       {activeSection === 'overview' ? (
         <>
-        {stationError ? (
-          <ErrorState
-            title="Station overview needs refresh"
-            description={stationError}
-            actionLabel="Retry Overview"
-            onActionPress={() => {
+          {stationError ? (
+            <ErrorState
+              title="Station overview needs refresh"
+              description={stationError}
+              actionLabel="Retry Overview"
+              onActionPress={() => {
                 void Promise.all([loadStation(), loadStationConfig(false), loadCustomFields(false)]);
               }}
               compact
@@ -760,53 +817,39 @@ export default function StationDetailScreen(): React.JSX.Element {
               />
             ) : catalogModel ? (
               <View style={styles.catalogBlock}>
-                {stationMediaUrl ? (
-                  <View style={styles.catalogImageFrame}>
-                    <AuthenticatedImage
-                      uri={stationMediaUrl}
-                      style={[
-                        styles.catalogImage,
-                        catalogImageAspectRatio
-                          ? {
-                              aspectRatio: catalogImageAspectRatio,
-                              minHeight: 160,
-                              maxHeight: 320,
-                              height: undefined,
-                            }
-                          : null,
-                      ]}
-                      resizeMode="contain"
-                      onLoad={(event) => {
-                        const width = event.nativeEvent.source.width;
-                        const height = event.nativeEvent.source.height;
-
-                        if (!width || !height) {
-                          return;
-                        }
-
-                        setCatalogImageAspectRatio(width / height);
-                      }}
-                    />
-                  </View>
-                ) : null}
                 <View style={styles.catalogTextBlock}>
                   <Text style={styles.catalogTitle}>
                     {catalogBrand?.name ?? station.brand} {catalogModel.name}
                   </Text>
-                  <Text style={styles.catalogMeta}>
-                    {catalogModel.isActive ? 'Active catalog model' : 'Inactive catalog model'} •{' '}
-                    {catalogModel.latestTemplateVersion
-                      ? `latest template v${catalogModel.latestTemplateVersion}`
-                      : 'no connector template'}
+                  <View style={styles.summaryRow}>
+                    <InfoPill
+                      label={catalogModel.isActive ? 'Active catalog model' : 'Inactive catalog model'}
+                      color={catalogModel.isActive ? '#0F9D58' : '#FB8C00'}
+                    />
+                    <InfoPill
+                      label={
+                        catalogModel.latestTemplateVersion
+                          ? `Latest template v${catalogModel.latestTemplateVersion}`
+                          : 'No connector template'
+                      }
+                      color={catalogModel.latestTemplateVersion ? '#6E41C3' : colors.mutedText}
+                    />
+                  </View>
+                  <Text style={styles.catalogDescription}>
+                    {catalogModel.description || 'No model description is configured in the catalog yet.'}
                   </Text>
-                  {catalogModel.description ? (
-                    <Text style={styles.catalogDescription}>{catalogModel.description}</Text>
-                  ) : (
-                    <Text style={styles.helperText}>
-                      No model description is configured in the catalog yet.
-                    </Text>
-                  )}
                 </View>
+                {catalogModel.imageUrl ? (
+                  <View style={styles.catalogMediaRow}>
+                    <CatalogAssetPreview
+                      label="Model Image"
+                      uri={catalogModel.imageUrl}
+                      emptyText="No model image is configured."
+                      failureText="The model image could not be loaded."
+                      frameMinHeight={180}
+                    />
+                  </View>
+                ) : null}
               </View>
             ) : (
               <Text style={styles.emptyText}>
@@ -816,71 +859,7 @@ export default function StationDetailScreen(): React.JSX.Element {
           </AppCard>
 
           <AppCard>
-            <Text style={styles.cardTitle}>Overview</Text>
-            <FieldRow label="Station ID" value={station.id} />
-            <FieldRow label="Code" value={station.code} />
-            <FieldRow
-              label="Status"
-              value={STATION_STATUS_LABELS[getStationDisplayStatus(station.status, station.isArchived)]}
-            />
-            <FieldRow label="QR Code" value={station.qrCode} />
-            <FieldRow label="Catalog Brand" value={catalogBrand?.name ?? station.brand} />
-            <FieldRow label="Catalog Model" value={catalogModel?.name ?? station.model} />
-            <FieldRow
-              label="Model Template Version"
-              value={station.modelTemplateVersion ? `v${station.modelTemplateVersion}` : 'Manual / not applied'}
-            />
-            <FieldRow label="Serial Number" value={station.serialNumber} />
-            <FieldRow label="Derived Max Power" value={`${station.powerKw} kW`} />
-            <FieldRow label="Derived Current Type" value={station.currentType} />
-            <FieldRow label="Derived Socket Types" value={station.socketType} />
-            <FieldRow label="Location" value={station.location} />
-            <FieldRow label="Last Test Date" value={formatDateShort(station.lastTestDate)} />
-            <FieldRow label="Archived At" value={formatDateTime(station.archivedAt)} />
-            <FieldRow label="Notes" value={station.notes} />
-            <FieldRow label="Created At" value={formatDateTime(station.createdAt)} />
-            <FieldRow label="Updated At" value={formatDateTime(station.updatedAt)} />
-
-            {canWriteRecords ? (
-              <>
-                <View style={styles.sectionDivider} />
-                <View style={styles.overviewActions}>
-                  <AppButton
-                    label={station.isArchived ? 'Archived Station' : 'Edit Station'}
-                    onPress={() =>
-                      router.push({ pathname: '/stations/edit', params: { stationId: station.id } })
-                    }
-                    variant="secondary"
-                    disabled={station.isArchived}
-                  />
-                  <AppButton
-                    label={applyingTemplate ? 'Applying Template...' : 'Apply Model Template'}
-                    onPress={confirmApplyTemplate}
-                    variant="secondary"
-                    disabled={
-                      station.isArchived ||
-                      applyingTemplate ||
-                      !catalogModel ||
-                      catalogModel.latestTemplateConnectors.length === 0
-                    }
-                  />
-                </View>
-                {station.isArchived ? (
-                  <Text style={styles.helperText}>
-                    Archived stations are read-only and cannot be edited from mobile.
-                  </Text>
-                ) : (
-                  <Text style={styles.helperText}>
-                    Changing brand or model does not overwrite connectors automatically. Use Apply
-                    Model Template when you want to replace the current connector layout.
-                  </Text>
-                )}
-              </>
-            ) : null}
-          </AppCard>
-
-          <AppCard>
-            <Text style={styles.cardTitle}>Connectors</Text>
+            <Text style={styles.cardTitle}>Connector Summary</Text>
             <View style={styles.summaryRow}>
               <InfoPill
                 label={`${station.connectorSummary.count} connector${station.connectorSummary.count === 1 ? '' : 's'}`}
@@ -890,18 +869,17 @@ export default function StationDetailScreen(): React.JSX.Element {
                 label={formatConnectorCapability(station)}
                 color={station.connectorSummary.hasDC ? '#1E88E5' : '#0F9D58'}
               />
-              <InfoPill
-                label={`Max ${station.connectorSummary.maxPowerKw} kW`}
-                color="#FB8C00"
-              />
+              <InfoPill label={`Max ${station.connectorSummary.maxPowerKw} kW`} color="#FB8C00" />
               {station.modelTemplateVersion ? (
                 <InfoPill label={`Template v${station.modelTemplateVersion}`} color="#6E41C3" />
               ) : null}
             </View>
-            <FieldRow
-              label="Connector Types"
-              value={station.connectorSummary.types.length > 0 ? station.connectorSummary.types.join(', ') : '-'}
-            />
+            <FieldRow label="Derived Max Power" value={`${station.powerKw} kW`} />
+            <FieldRow label="Derived Current Type" value={station.currentType} />
+            <FieldRow label="Connector Types" value={connectorTypesValue} />
+
+            <View style={styles.sectionDivider} />
+            <Text style={styles.subsectionTitle}>Connector Rows</Text>
 
             {connectorItems.length === 0 ? (
               <Text style={styles.emptyText}>No connector rows are available for this station yet.</Text>
@@ -921,6 +899,89 @@ export default function StationDetailScreen(): React.JSX.Element {
                   <Text style={styles.connectorMeta}>Order: {connector.sortOrder}</Text>
                 </View>
               ))
+            )}
+          </AppCard>
+
+          <AppCard>
+            <Text style={styles.cardTitle}>Overview</Text>
+            <FieldRow label="Station ID" value={station.id} />
+            <FieldRow label="Code" value={station.code} />
+            <FieldRow
+              label="Status"
+              value={STATION_STATUS_LABELS[getStationDisplayStatus(station.status, station.isArchived)]}
+            />
+            <FieldRow label="QR Code" value={station.qrCode} />
+            <FieldRow label="Catalog Brand" value={catalogBrand?.name ?? station.brand} />
+            <FieldRow label="Catalog Model" value={catalogModel?.name ?? station.model} />
+            <FieldRow
+              label="Model Template Version"
+              value={station.modelTemplateVersion ? `v${station.modelTemplateVersion}` : 'Manual / not applied'}
+            />
+            <FieldRow label="Serial Number" value={station.serialNumber} />
+            <FieldRow label="Location" value={station.location} />
+            <FieldRow label="Last Test Date" value={formatDateShort(station.lastTestDate)} />
+            <FieldRow label="Archived At" value={formatDateTime(station.archivedAt)} />
+            <FieldRow label="Notes" value={station.notes} />
+            <FieldRow label="Created At" value={formatDateTime(station.createdAt)} />
+            <FieldRow label="Updated At" value={formatDateTime(station.updatedAt)} />
+
+            {canWriteRecords ? (
+              <>
+                <View style={styles.sectionDivider} />
+                <Text style={styles.subsectionTitle}>Field Shortcuts</Text>
+                <View style={styles.actionRow}>
+                  <AppButton
+                    label="New Test"
+                    onPress={openTestComposer}
+                    variant="secondary"
+                    style={styles.actionButton}
+                  />
+                  <AppButton
+                    label="New Issue"
+                    onPress={openIssueComposer}
+                    variant="secondary"
+                    style={styles.actionButton}
+                  />
+                </View>
+                <View style={styles.overviewActions}>
+                  <AppButton
+                    label={station.isArchived ? 'Archived Station' : 'Edit Station'}
+                    onPress={() =>
+                      router.push({ pathname: '/stations/edit', params: { stationId: station.id } })
+                    }
+                    variant="secondary"
+                    disabled={station.isArchived}
+                    style={styles.actionButton}
+                  />
+                  <AppButton
+                    label={applyingTemplate ? 'Applying Template...' : 'Apply Model Template'}
+                    onPress={confirmApplyTemplate}
+                    variant="secondary"
+                    disabled={
+                      station.isArchived ||
+                      applyingTemplate ||
+                      !catalogModel ||
+                      catalogModel.latestTemplateConnectors.length === 0
+                    }
+                    style={styles.actionButton}
+                  />
+                </View>
+                {station.isArchived ? (
+                  <Text style={styles.helperText}>
+                    Archived stations are read-only and cannot be edited from mobile.
+                  </Text>
+                ) : (
+                  <Text style={styles.helperText}>
+                    Changing brand or model does not overwrite connectors automatically. Apply
+                    Model Template only when you want the saved backend connector layout replaced.
+                  </Text>
+                )}
+              </>
+            ) : (
+              <Text style={styles.helperText}>
+                Your current role can view this station, tests, and issues, but cannot create new
+                field records from overview shortcuts.
+              </Text>
             )}
           </AppCard>
 
@@ -1035,7 +1096,18 @@ export default function StationDetailScreen(): React.JSX.Element {
               <AppButton
                 label={showTestComposer ? 'Hide Form' : 'New Test'}
                 variant="secondary"
-                onPress={() => setShowTestComposer((prev) => !prev)}
+                onPress={() => {
+                  setShowTestComposer((prev) => {
+                    const nextValue = !prev;
+
+                    if (nextValue) {
+                      setShowIssueComposer(false);
+                      setTestFormError('');
+                    }
+
+                    return nextValue;
+                  });
+                }}
               />
             ) : null}
           </View>
@@ -1143,7 +1215,18 @@ export default function StationDetailScreen(): React.JSX.Element {
               <AppButton
                 label={showIssueComposer ? 'Hide Form' : 'New Issue'}
                 variant="secondary"
-                onPress={() => setShowIssueComposer((prev) => !prev)}
+                onPress={() => {
+                  setShowIssueComposer((prev) => {
+                    const nextValue = !prev;
+
+                    if (nextValue) {
+                      setShowTestComposer(false);
+                      setIssueFormError('');
+                    }
+
+                    return nextValue;
+                  });
+                }}
               />
             ) : null}
           </View>
@@ -1241,7 +1324,13 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   overviewActions: {
+    flexDirection: 'row',
     gap: 10,
+  },
+  subsectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
   },
   fieldRow: {
     gap: 2,
@@ -1261,21 +1350,6 @@ const styles = StyleSheet.create({
   catalogBlock: {
     gap: 12,
   },
-  catalogImageFrame: {
-    width: '100%',
-    minHeight: 180,
-    maxHeight: 320,
-    borderRadius: 12,
-    backgroundColor: '#E9EEF5',
-    padding: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  catalogImage: {
-    width: '100%',
-    height: 180,
-  },
   catalogTextBlock: {
     gap: 6,
   },
@@ -1284,15 +1358,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  catalogMeta: {
-    color: colors.mutedText,
-    fontSize: 12,
-    lineHeight: 18,
-  },
   catalogDescription: {
     color: colors.text,
     fontSize: 13,
     lineHeight: 20,
+  },
+  catalogMediaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
   },
   connectorCard: {
     borderWidth: 1,

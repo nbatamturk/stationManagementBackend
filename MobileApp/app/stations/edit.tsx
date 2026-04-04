@@ -7,6 +7,7 @@ import {
   AppCard,
   AppScreen,
   AppTextInput,
+  CatalogAssetPreview,
   EmptyState,
   LoadingState,
   OptionChip,
@@ -35,7 +36,7 @@ import type {
 } from '@/types';
 import { isValidDateOnly, isoToDateOnly } from '@/utils/date';
 import { parseSelectOptions } from '@/utils/custom-field';
-import { STATION_STATUS_LABELS, getStationDisplayStatus } from '@/utils/station';
+import { STATION_STATUS_LABELS, getStationDisplayStatus, stationEditableStatusOptions } from '@/utils/station';
 
 type FormErrors = Partial<Record<Exclude<keyof StationFormValues, 'connectors'>, string>> & {
   connectors?: string;
@@ -45,8 +46,6 @@ type ConnectorFieldError = {
   connectorNo?: string;
   powerKw?: string;
 };
-
-const stationEditableStatusOptions = ['active', 'maintenance', 'inactive', 'faulty'] as const;
 
 const createDefaultFormValues = (prefilledQrCode = ''): StationFormValues => ({
   name: '',
@@ -229,6 +228,13 @@ const validateForm = (
 
 const formatModelChipLabel = (model: StationCatalogModel) => `${model.name}${model.isActive ? '' : ' (Inactive)'}`;
 const formatBrandChipLabel = (brand: StationCatalogBrand) => `${brand.name}${brand.isActive ? '' : ' (Inactive)'}`;
+const formatCurrentMixLabel = (hasAC: boolean, hasDC: boolean): string => {
+  if (hasAC && hasDC) {
+    return 'AC + DC';
+  }
+
+  return hasDC ? 'DC only' : 'AC only';
+};
 
 const ReadOnlyValue = ({
   label,
@@ -266,6 +272,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
   const [customFieldErrors, setCustomFieldErrors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [templateDraftMessage, setTemplateDraftMessage] = useState('');
 
   const formTitle = isEditMode ? 'Edit Station' : 'Create Station';
   const formSubtitle = isEditMode
@@ -283,6 +290,18 @@ export default function AddEditStationScreen(): React.JSX.Element {
   const selectedModel = useMemo(
     () => stationConfig?.models.find((model) => model.id === formValues.modelId) ?? null,
     [formValues.modelId, stationConfig?.models],
+  );
+  const selectedModelTemplateFields = useMemo(
+    () =>
+      selectedModel
+        ? deriveConnectorFields(
+            selectedModel.latestTemplateConnectors.map((connector) => ({
+              ...connector,
+              sortOrder: connector.sortOrder ?? connector.connectorNo,
+            })),
+          )
+        : null,
+    [selectedModel],
   );
   const selectableBrands = useMemo(() => {
     const brands = stationConfig?.brands ?? [];
@@ -339,6 +358,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
         setStation(null);
         setFormValues(createDefaultFormValues(prefilledQrCode));
         setCustomValues(createCustomValueMap(definitions));
+        setTemplateDraftMessage('');
         return;
       }
 
@@ -346,12 +366,14 @@ export default function AddEditStationScreen(): React.JSX.Element {
         setStation(null);
         setCustomValues(createCustomValueMap(definitions));
         setLoadError('The selected station could not be loaded.');
+        setTemplateDraftMessage('');
         return;
       }
 
       setStation(stationResult);
       setFormValues(mapStationToFormValues(stationResult));
       setCustomValues(createCustomValueMap(definitions, stationResult.customValuesByFieldId));
+      setTemplateDraftMessage('');
     } catch (error) {
       setStation(null);
       setStationConfig(null);
@@ -398,6 +420,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
       modelId: prev.brandId === brandId ? prev.modelId : '',
     }));
     setSubmitError('');
+    setTemplateDraftMessage('');
     setFormErrors((prev) => ({
       ...prev,
       brandId: undefined,
@@ -406,17 +429,12 @@ export default function AddEditStationScreen(): React.JSX.Element {
   };
 
   const handleModelSelect = (modelId: string): void => {
-    const nextModel = stationConfig?.models.find((model) => model.id === modelId) ?? null;
-
     setFormValues((prev) => ({
       ...prev,
       modelId,
-      connectors:
-        prev.connectors.length === 0 && nextModel?.latestTemplateConnectors.length
-          ? nextModel.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector))
-          : prev.connectors,
     }));
     setSubmitError('');
+    setTemplateDraftMessage('');
     setFormErrors((prev) => ({
       ...prev,
       modelId: undefined,
@@ -438,6 +456,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
       ...prev,
       connectors: undefined,
     }));
+    setTemplateDraftMessage('');
 
     if (connectorErrors[index]) {
       setConnectorErrors((prev) =>
@@ -455,6 +474,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
       ...prev,
       connectors: undefined,
     }));
+    setTemplateDraftMessage('');
   };
 
   const handleRemoveConnector = (index: number): void => {
@@ -464,6 +484,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
     }));
     setConnectorErrors((prev) => prev.filter((_, connectorIndex) => connectorIndex !== index));
     setSubmitError('');
+    setTemplateDraftMessage('');
   };
 
   const moveConnector = (index: number, direction: -1 | 1): void => {
@@ -485,6 +506,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
       };
     });
     setSubmitError('');
+    setTemplateDraftMessage('');
   };
 
   const handleCustomValueChange = (fieldId: string, value: string): void => {
@@ -512,6 +534,43 @@ export default function AddEditStationScreen(): React.JSX.Element {
     router.replace('/stations');
   };
 
+  const handleLoadModelTemplate = (): void => {
+    if (!selectedModel || selectedModel.latestTemplateConnectors.length === 0) {
+      return;
+    }
+
+    Alert.alert(
+      'Load Model Template',
+      'Replace the current connector rows in this form with the latest template from the selected catalog model? Unsaved connector edits in this form will be overwritten.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Load Template',
+          onPress: () => {
+            setFormValues((prev) => ({
+              ...prev,
+              connectors: selectedModel.latestTemplateConnectors.map((connector) => toConnectorFormValue(connector)),
+            }));
+            setFormErrors((prev) => ({
+              ...prev,
+              connectors: undefined,
+            }));
+            setConnectorErrors([]);
+            setSubmitError('');
+            setTemplateDraftMessage(
+              selectedModel.latestTemplateVersion
+                ? `Loaded template v${selectedModel.latestTemplateVersion} into the form. Save the station to persist these connector rows.`
+                : 'Loaded the selected model template into the form. Save the station to persist these connector rows.',
+            );
+          },
+        },
+      ],
+    );
+  };
+
   const handleApplyTemplate = (): void => {
     if (!station || applyingTemplate) {
       return;
@@ -519,7 +578,7 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
     Alert.alert(
       'Apply Model Template',
-      'Replace the current station connectors with the latest template from the selected model?',
+      'Replace the saved station connectors in backend records with the latest template from the selected model?',
       [
         {
           text: 'Cancel',
@@ -781,49 +840,154 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
         <View style={styles.formGroup}>
           <Text style={styles.filterLabel}>Brand</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-            {selectableBrands.map((brand) => (
-              <OptionChip
-                key={brand.id}
-                label={formatBrandChipLabel(brand)}
-                selected={formValues.brandId === brand.id}
-                onPress={() => handleBrandSelect(brand.id)}
-              />
-            ))}
-          </ScrollView>
-          {selectedBrand ? (
-            <Text style={styles.helperText}>Selected brand: {selectedBrand.name}</Text>
+          {selectableBrands.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+              {selectableBrands.map((brand) => (
+                <OptionChip
+                  key={brand.id}
+                  label={formatBrandChipLabel(brand)}
+                  selected={formValues.brandId === brand.id}
+                  onPress={() => handleBrandSelect(brand.id)}
+                />
+              ))}
+            </ScrollView>
           ) : (
-            <Text style={styles.helperText}>Choose a catalog brand before picking the model.</Text>
+            <EmptyState
+              title="No catalog brands"
+              description="No station brands are available in backend config yet. Add catalog brands before creating stations from mobile."
+            />
           )}
+          {selectedBrand ? <Text style={styles.helperText}>Selected brand: {selectedBrand.name}</Text> : null}
           {formErrors.brandId ? <Text style={styles.errorText}>{formErrors.brandId}</Text> : null}
         </View>
 
         <View style={styles.formGroup}>
           <Text style={styles.filterLabel}>Model</Text>
           {formValues.brandId ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-              {selectableModels.map((model) => (
-                <OptionChip
-                  key={model.id}
-                  label={formatModelChipLabel(model)}
-                  selected={formValues.modelId === model.id}
-                  onPress={() => handleModelSelect(model.id)}
-                />
-              ))}
-            </ScrollView>
+            selectableModels.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                {selectableModels.map((model) => (
+                  <OptionChip
+                    key={model.id}
+                    label={formatModelChipLabel(model)}
+                    selected={formValues.modelId === model.id}
+                    onPress={() => handleModelSelect(model.id)}
+                  />
+                ))}
+              </ScrollView>
+            ) : (
+              <EmptyState
+                title="No models for this brand"
+                description="Select another brand or add a compatible catalog model before creating this station."
+              />
+            )
           ) : (
             <Text style={styles.helperText}>Select a brand first.</Text>
           )}
-          {selectedModel ? (
-            <Text style={styles.helperText}>
-              {selectedModel.latestTemplateConnectors.length > 0
-                ? `Latest template has ${selectedModel.latestTemplateConnectors.length} connector${selectedModel.latestTemplateConnectors.length === 1 ? '' : 's'}.`
-                : 'This model has no connector template yet.'}
-            </Text>
-          ) : null}
+          {selectedModel ? <Text style={styles.helperText}>Selected model: {selectedModel.name}</Text> : null}
           {formErrors.modelId ? <Text style={styles.errorText}>{formErrors.modelId}</Text> : null}
         </View>
+
+        {selectedModel ? (
+          <View style={styles.catalogSummaryCard}>
+            <View style={styles.catalogSummaryHeader}>
+              <View style={styles.catalogSummaryText}>
+                <Text style={styles.sectionTitle}>Selected Catalog Model</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Brand and model selection never changes connectors automatically. Load the
+                  model template only when you want to replace the current draft connector rows.
+                </Text>
+              </View>
+              <AppButton
+                label="Load Model Template"
+                variant="secondary"
+                onPress={handleLoadModelTemplate}
+                disabled={selectedModel.latestTemplateConnectors.length === 0 || submitting || applyingTemplate}
+              />
+            </View>
+
+            <View style={styles.catalogStateRow}>
+              <View
+                style={[
+                  styles.catalogStatePill,
+                  selectedModel.isActive ? styles.catalogStatePillInfo : styles.catalogStatePillWarning,
+                ]}
+              >
+                <Text style={styles.catalogStatePillText}>
+                  {selectedBrand?.name ?? 'Catalog brand'} {selectedModel.name}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.catalogStatePill,
+                  selectedModel.isActive ? styles.catalogStatePillSuccess : styles.catalogStatePillWarning,
+                ]}
+              >
+                <Text style={styles.catalogStatePillText}>
+                  {selectedModel.isActive ? 'Active catalog model' : 'Inactive catalog model'}
+                </Text>
+              </View>
+              <View style={[styles.catalogStatePill, styles.catalogStatePillNeutral]}>
+                <Text style={styles.catalogStatePillText}>
+                  {selectedModel.latestTemplateVersion
+                    ? `Template v${selectedModel.latestTemplateVersion}`
+                    : 'No template yet'}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.catalogDescription}>
+              {selectedModel.description || 'No model description is configured in the catalog yet.'}
+            </Text>
+
+            {selectedModel.imageUrl ? (
+              <View style={styles.catalogMediaRow}>
+                <CatalogAssetPreview
+                  label="Model Image"
+                  uri={selectedModel.imageUrl}
+                  emptyText="No model image is configured."
+                  failureText="The model image could not be loaded."
+                  frameMinHeight={180}
+                />
+              </View>
+            ) : null}
+
+            {selectedModelTemplateFields ? (
+              <View style={styles.templateSummaryGrid}>
+                <ReadOnlyValue
+                  label="Template Connector Count"
+                  value={`${selectedModelTemplateFields.summary.count}`}
+                />
+                <ReadOnlyValue
+                  label="Template Current Mix"
+                  value={formatCurrentMixLabel(
+                    selectedModelTemplateFields.summary.hasAC,
+                    selectedModelTemplateFields.summary.hasDC,
+                  )}
+                />
+                <ReadOnlyValue
+                  label="Template Connector Types"
+                  value={selectedModelTemplateFields.socketType || 'No connector types yet'}
+                />
+                <ReadOnlyValue
+                  label="Template Max Power"
+                  value={
+                    selectedModelTemplateFields.powerKw
+                      ? `${selectedModelTemplateFields.powerKw} kW`
+                      : 'Not derived yet'
+                  }
+                />
+              </View>
+            ) : null}
+
+            <Text style={styles.helperText}>
+              {selectedModel.latestTemplateConnectors.length === 0
+                ? 'This model has no connector template yet. Add connectors manually if the backend station should be created now.'
+                : 'Loading the template replaces only the draft connector rows in this form until you save.'}
+            </Text>
+            {templateDraftMessage ? <Text style={styles.successText}>{templateDraftMessage}</Text> : null}
+          </View>
+        ) : null}
 
         <View style={styles.formGroup}>
           <Text style={styles.filterLabel}>Status</Text>
@@ -877,13 +1041,21 @@ export default function AddEditStationScreen(): React.JSX.Element {
           </View>
           {isEditMode && station ? (
             <AppButton
-              label={applyingTemplate ? 'Applying...' : 'Apply Model Template'}
+              label={applyingTemplate ? 'Applying...' : 'Apply To Saved Station'}
               variant="secondary"
               onPress={handleApplyTemplate}
-              disabled={applyingTemplate || !selectedModel}
+              disabled={
+                applyingTemplate || !selectedModel || selectedModel.latestTemplateConnectors.length === 0
+              }
             />
           ) : null}
         </View>
+        {isEditMode && station ? (
+          <Text style={styles.helperText}>
+            This server action replaces the saved station connectors in backend records and reloads
+            the form.
+          </Text>
+        ) : null}
         <ReadOnlyValue label="Connector Count" value={`${derivedFields.summary.count}`} />
         <ReadOnlyValue label="Derived Current Type" value={derivedFields.currentType ?? ''} />
         <ReadOnlyValue
@@ -911,7 +1083,9 @@ export default function AddEditStationScreen(): React.JSX.Element {
 
         {formValues.connectors.length === 0 ? (
           <Text style={styles.helperText}>
-            No connectors added yet. Select a model to seed from its template or add a connector manually.
+            {selectedModel?.latestTemplateConnectors.length
+              ? 'No connectors added yet. Load the selected model template or add connector rows manually.'
+              : 'No connectors added yet. Add connector rows manually or choose a model with a template.'}
           </Text>
         ) : (
           formValues.connectors.map((connector, index) => (
@@ -1201,6 +1375,61 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  catalogSummaryCard: {
+    gap: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#F8FBFF',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  catalogSummaryHeader: {
+    gap: 10,
+  },
+  catalogSummaryText: {
+    gap: 4,
+  },
+  catalogStateRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  catalogStatePill: {
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  catalogStatePillInfo: {
+    backgroundColor: '#EEF4FF',
+  },
+  catalogStatePillSuccess: {
+    backgroundColor: '#EEF7EE',
+  },
+  catalogStatePillWarning: {
+    backgroundColor: '#FFF7E6',
+  },
+  catalogStatePillNeutral: {
+    backgroundColor: '#F4F6FA',
+  },
+  catalogStatePillText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  catalogDescription: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  catalogMediaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  templateSummaryGrid: {
+    gap: 10,
+  },
   sectionHeaderRow: {
     gap: 12,
   },
@@ -1241,6 +1470,12 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.danger,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  successText: {
+    color: '#0F9D58',
     fontSize: 13,
     fontWeight: '600',
     lineHeight: 18,
