@@ -12,7 +12,6 @@ import type {
   StationDraft,
   StationListFilters,
   StationSummary,
-  StationSync,
 } from '@/types';
 import { dateOnlyToIsoDateTime, isValidDateOnly, isoToDateOnly } from '@/utils/date';
 import { parseSelectOptions } from '@/utils/custom-field';
@@ -62,7 +61,6 @@ type ApiStation = {
   connectors?: ApiStationConnector[];
   customFields?: Record<string, unknown>;
   summary?: StationSummary;
-  sync?: StationSync;
 };
 
 type StationListQuery = Record<string, string | number | boolean | undefined>;
@@ -302,7 +300,6 @@ const mapApiStation = (station: ApiStation): Station => ({
   connectorSummary: station.connectorSummary,
   connectors: station.connectors ? sortStationConnectorValues(station.connectors.map(mapApiConnector)) : undefined,
   summary: station.summary,
-  sync: station.sync,
   customFields: station.customFields ?? {},
 });
 

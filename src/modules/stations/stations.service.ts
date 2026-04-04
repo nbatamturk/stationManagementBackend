@@ -74,19 +74,8 @@ type StationCommonResponse = {
   connectorSummary: StationConnectorSummary;
 };
 
-type StationSyncMetadata = {
-  updatedAt: Date;
-  isArchived: boolean;
-  archivedAt: Date | null;
-  isDeleted: false;
-  deletedAt: null;
-  deletionMode: 'hard_delete';
-  conflictFields?: typeof STATION_CONFLICT_FIELDS;
-};
-
 type StationCompactResponse = StationCommonResponse & {
   summary: StationMobileSummary;
-  sync: StationSyncMetadata;
 };
 
 type StationSummaryResponse = StationCompactResponse & {
@@ -123,7 +112,6 @@ type StationCatalogModelResponse = {
   name: string;
   description: string | null;
   imageUrl: string | null;
-  logoUrl: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -183,7 +171,6 @@ type StationCatalogModelCreatePayload = {
   name: string;
   description?: string | null;
   imageUrl?: string | null;
-  logoUrl?: string | null;
   isActive?: boolean;
 };
 
@@ -217,7 +204,6 @@ type StationListQuery = {
   isArchived?: boolean;
   createdFrom?: string;
   createdTo?: string;
-  updatedFrom?: string;
   updatedTo?: string;
   powerMin?: number;
   powerMax?: number;
@@ -241,7 +227,6 @@ const allowedQueryKeys = new Set([
   'isArchived',
   'createdFrom',
   'createdTo',
-  'updatedFrom',
   'updatedTo',
   'powerMin',
   'powerMax',
@@ -251,7 +236,6 @@ const allowedQueryKeys = new Set([
 const CUSTOM_FILTER_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 const MAX_CUSTOM_FILTERS = 20;
 const MAX_ID_FILTERS = 100;
-const STATION_CONFLICT_FIELDS = ['status', 'location', 'lastTestDate', 'notes', 'customFields', 'attachments', 'issues'] as const;
 const MAX_STATION_POWER_KW = 1000;
 
 type ConnectorData = {
@@ -315,13 +299,11 @@ export class StationsService {
 
     const createdFrom = normalizeOptionalDateTime(query.createdFrom, 'Created from', { allowFuture: true });
     const createdTo = normalizeOptionalDateTime(query.createdTo, 'Created to', { allowFuture: true });
-    const updatedFrom = normalizeOptionalDateTime(query.updatedFrom, 'Updated from', { allowFuture: true });
     const updatedTo = normalizeOptionalDateTime(query.updatedTo, 'Updated to', { allowFuture: true });
     const powerMin = this.normalizeOptionalPower(query.powerMin, 'Power minimum');
     const powerMax = this.normalizeOptionalPower(query.powerMax, 'Power maximum');
 
     this.assertDateRange('Created', createdFrom, createdTo);
-    this.assertDateRange('Updated', updatedFrom, updatedTo);
     this.assertNumericRange('Power', powerMin, powerMax);
 
     const customFieldFilters = await this.extractCustomFieldFilters(query);
@@ -344,7 +326,6 @@ export class StationsService {
       isArchived: query.isArchived,
       createdFrom: createdFrom ?? undefined,
       createdTo: createdTo ?? undefined,
-      updatedFrom: updatedFrom ?? undefined,
       updatedTo: updatedTo ?? undefined,
       powerMin,
       powerMax,
@@ -426,25 +407,6 @@ export class StationsService {
       station as StationRecord,
       customFieldMap.get(id) ?? {},
       connectorData.connectorsByStationId.get(id) ?? [],
-      connectorData.connectorSummaryByStationId.get(id),
-      summaryMap.get(id),
-    );
-  }
-
-  async getSummaryById(id: string) {
-    const station = await this.repository.findById(id);
-
-    if (!station) {
-      throw new AppError('Station not found', 404, 'STATION_NOT_FOUND');
-    }
-
-    const [summaryMap, connectorData] = await Promise.all([
-      this.repository.getMobileSummaryMap([id]),
-      this.loadConnectorData([station as StationRecord]),
-    ]);
-
-    return this.toStationSummaryResponse(
-      station as StationRecord,
       connectorData.connectorSummaryByStationId.get(id),
       summaryMap.get(id),
     );
@@ -685,7 +647,6 @@ export class StationsService {
             name: normalized.name,
             description: normalized.description,
             imageUrl: normalized.imageUrl,
-            logoUrl: normalized.logoUrl,
             isActive: normalized.isActive ?? true,
           },
           tx,
@@ -755,7 +716,6 @@ export class StationsService {
             name: normalized.name,
             description: normalized.description,
             imageUrl: normalized.imageUrl,
-            logoUrl: normalized.logoUrl,
             isActive: normalized.isActive,
           },
           tx,
@@ -876,7 +836,6 @@ export class StationsService {
           id,
           {
             imageUrl: null,
-            logoUrl: null,
             imageStoragePath: storagePath,
             imageMimeType: normalizedImage.mimeType,
             imageOriginalFileName: normalizedImage.originalFileName,
@@ -935,14 +894,13 @@ export class StationsService {
       throw new AppError('Station model not found', 404, 'STATION_MODEL_NOT_FOUND');
     }
 
-    const hadAnyImage = Boolean(existing.imageStoragePath || existing.imageUrl || existing.logoUrl);
+    const hadAnyImage = Boolean(existing.imageStoragePath || existing.imageUrl);
 
     await db.transaction(async (tx) => {
       const updated = await this.catalogRepository.updateModel(
         id,
         {
           imageUrl: null,
-          logoUrl: null,
           imageStoragePath: null,
           imageMimeType: null,
           imageOriginalFileName: null,
@@ -1429,7 +1387,6 @@ export class StationsService {
           name: modelName,
           description: null,
           imageUrl: null,
-          logoUrl: null,
           isActive: true,
         },
         executor,
@@ -1551,7 +1508,6 @@ export class StationsService {
       name: model.name,
       description: model.description ?? null,
       imageUrl: this.getCatalogModelImageUrl(model),
-      logoUrl: null,
       isActive: model.isActive,
       createdAt: model.createdAt,
       updatedAt: model.updatedAt,
@@ -1804,7 +1760,6 @@ export class StationsService {
         maxLength: 4000,
       }),
       imageUrl: this.normalizeCatalogModelAssetUrl(payload.imageUrl, 'Station model image URL'),
-      logoUrl: this.normalizeCatalogModelAssetUrl(payload.logoUrl, 'Station model logo URL'),
       isActive: payload.isActive,
     };
   }
@@ -1827,10 +1782,6 @@ export class StationsService {
         payload.imageUrl === undefined
           ? undefined
           : this.normalizeCatalogModelAssetUrl(payload.imageUrl, 'Station model image URL'),
-      logoUrl:
-        payload.logoUrl === undefined
-          ? undefined
-          : this.normalizeCatalogModelAssetUrl(payload.logoUrl, 'Station model logo URL'),
       isActive: payload.isActive,
     };
   }
@@ -1927,18 +1878,6 @@ export class StationsService {
     };
   }
 
-  private getSyncMetadata(station: StationRecord, includeConflictFields = false): StationSyncMetadata {
-    return {
-      updatedAt: station.updatedAt,
-      isArchived: station.isArchived,
-      archivedAt: station.archivedAt,
-      isDeleted: false,
-      deletedAt: null,
-      deletionMode: 'hard_delete',
-      ...(includeConflictFields ? { conflictFields: STATION_CONFLICT_FIELDS } : {}),
-    };
-  }
-
   private getCommonStationFields(
     station: StationRecord,
     connectorSummary?: StationConnectorSummary,
@@ -1989,7 +1928,6 @@ export class StationsService {
     return {
       ...this.getCommonStationFields(station, connectorSummary),
       summary: this.getSummary(summary),
-      sync: this.getSyncMetadata(station),
     };
   }
 
@@ -2002,7 +1940,6 @@ export class StationsService {
       ...this.getCommonStationFields(station, connectorSummary),
       serialNumber: station.serialNumber,
       summary: this.getSummary(summary),
-      sync: this.getSyncMetadata(station, true),
     };
   }
 

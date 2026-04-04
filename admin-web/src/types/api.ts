@@ -63,16 +63,6 @@ export interface StationSummary {
   latestTestResult: TestResult | null;
 }
 
-export interface StationSync {
-  updatedAt: string;
-  isArchived: boolean;
-  archivedAt: string | null;
-  isDeleted: boolean;
-  deletedAt: string | null;
-  deletionMode: 'hard_delete';
-  conflictFields?: Array<'status' | 'location' | 'lastTestDate' | 'notes' | 'customFields' | 'attachments' | 'issues'>;
-}
-
 export interface StationConnectorSummary {
   types: StationConnectorType[];
   maxPowerKw: number;
@@ -110,7 +100,6 @@ export interface StationCatalogModel {
   name: string;
   description: string | null;
   imageUrl: string | null;
-  logoUrl: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -152,7 +141,6 @@ export interface Station {
   connectors?: StationConnector[];
   customFields?: Record<string, unknown>;
   summary?: StationSummary;
-  sync?: StationSync;
 }
 
 export interface StationWritePayload {

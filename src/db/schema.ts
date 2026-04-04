@@ -79,7 +79,6 @@ export const stationModels = pgTable(
     name: varchar('name', { length: 120 }).notNull(),
     description: text('description'),
     imageUrl: text('image_url'),
-    logoUrl: text('logo_url'),
     imageStoragePath: text('image_storage_path'),
     imageMimeType: varchar('image_mime_type', { length: 255 }),
     imageOriginalFileName: varchar('image_original_file_name', { length: 255 }),

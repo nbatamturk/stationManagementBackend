@@ -15,7 +15,6 @@ import {
   assertStationConnectorSummary,
   assertIsoDateTime,
   assertStationSummary,
-  assertStationSync,
   authHeaders,
   buildMultipartUpload,
   expectError,
@@ -69,7 +68,6 @@ test('stations contract', async (t) => {
     assert.equal(body.data[0]?.model, 'Terra 54');
     assertStationConnectorSummary(body.data[0]!.connectorSummary);
     assertStationSummary(body.data[0]!.summary);
-    assertStationSync(body.data[0]!.sync);
   });
 
   await t.test('station config returns catalog items and latest template snapshots', async () => {
@@ -92,7 +90,6 @@ test('stations contract', async (t) => {
         name: string;
         description: string | null;
         imageUrl: string | null;
-        logoUrl: string | null;
         isActive: boolean;
         createdAt: string;
         updatedAt: string;
@@ -141,7 +138,6 @@ test('stations contract', async (t) => {
       .update(stationModels)
       .set({
         imageUrl: 'https://legacy.example/terra54.png',
-        logoUrl: 'https://legacy.example/terra54-logo.png',
       })
       .where(eq(stationModels.id, fixtureIds.models.terra54));
 
@@ -151,14 +147,13 @@ test('stations contract', async (t) => {
       url: '/stations/config',
       headers: bearerHeaders(token),
     });
-    const data = expectSuccess<{ models: Array<{ id: string; imageUrl: string | null; logoUrl: string | null }> }>(
+    const data = expectSuccess<{ models: Array<{ id: string; imageUrl: string | null }> }>(
       response,
       200,
     );
 
     const terra54 = data.models.find((model) => model.id === fixtureIds.models.terra54);
     assert.equal(terra54?.imageUrl, 'https://legacy.example/terra54.png');
-    assert.equal(terra54?.logoUrl, null);
   });
 
   await t.test('station model image upload, download, and delete use the secure backend-managed media flow', async () => {
@@ -186,10 +181,9 @@ test('stations contract', async (t) => {
       headers: authHeaders(adminToken, upload.headers),
       payload: upload.payload,
     });
-    const uploadData = expectSuccess<{ imageUrl: string | null; logoUrl: string | null }>(uploadResponse, 200);
+    const uploadData = expectSuccess<{ imageUrl: string | null }>(uploadResponse, 200);
 
     assert.match(uploadData.imageUrl ?? '', new RegExp(`^/stations/models/${fixtureIds.models.terra54}/image\\?v=`));
-    assert.equal(uploadData.logoUrl, null);
 
     const storedModel = await db.query.stationModels.findFirst({
       where: eq(stationModels.id, fixtureIds.models.terra54),
@@ -300,7 +294,6 @@ test('stations contract', async (t) => {
     assertIsoDateTime(data.updatedAt);
     assertStationConnectorSummary(data.connectorSummary);
     assertStationSummary(data.summary);
-    assertStationSync(data.sync, true);
   });
 
   await t.test('create station accepts brandId and modelId as the primary catalog contract', async () => {
@@ -403,7 +396,6 @@ test('stations contract', async (t) => {
     assert.equal(stationStatusValues.includes(data.status), true);
     assertStationConnectorSummary(data.connectorSummary);
     assertStationSummary(data.summary);
-    assertStationSync(data.sync, true);
   });
 
   await t.test('connector replacement soft-deletes old rows and returns ordered connector summary', async () => {
@@ -545,7 +537,6 @@ test('stations contract', async (t) => {
           name: 'HYC400',
           description: 'High power charging cabinet',
           imageUrl: 'https://example.com/hyc400.png',
-          logoUrl: 'https://example.com/alpitronic.svg',
         },
       }),
       201,
@@ -872,10 +863,9 @@ test('stations contract', async (t) => {
     assert.equal('customFields' in data, false);
     assert.equal('notes' in data, false);
     assertStationSummary(data.summary);
-    assertStationSync(data.sync, true);
   });
 
-  await t.test('station detail returns full record, nullable fields, and sync metadata', async () => {
+  await t.test('station detail returns full record, nullable fields, and summary metadata', async () => {
     await resetIntegrationDb();
 
     const { token } = await loginAndGetToken(app, 'operator');
@@ -910,7 +900,6 @@ test('stations contract', async (t) => {
     );
     assertStationConnectorSummary(data.connectorSummary);
     assertStationSummary(data.summary);
-    assertStationSync(data.sync, true);
   });
 
   await t.test('archive station preserves route path and returns inactive archived state', async () => {
@@ -927,7 +916,6 @@ test('stations contract', async (t) => {
     assert.equal(data.status, 'inactive');
     assert.equal(data.isArchived, true);
     assertIsoDateTime(data.archivedAt);
-    assertStationSync(data.sync, true);
   });
 
   await t.test('viewer writes and operator admin-only station actions are forbidden', async () => {

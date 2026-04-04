@@ -11,6 +11,7 @@
     "bootstrap": "node scripts/bootstrap.mjs",
     "doctor": "node scripts/doctor.mjs",
     "dev": "tsx watch src/server.ts",
+    "dev:all": "concurrently -k -n backend,admin -c blue,green \"npm run dev:backend\" \"npm run dev:admin\"",
     "dev:backend": "npm run dev",
     "dev:admin": "npm --prefix admin-web run dev -- --port 3001",
     "dev:mobile": "npm --prefix MobileApp run start",
@@ -22,6 +23,7 @@
     "check:admin": "npm --prefix admin-web run check",
     "check:mobile": "npm --prefix MobileApp run typecheck",
     "start": "node dist/server.js",
+    "start:admin": "npm --prefix admin-web run start -- --hostname 0.0.0.0 --port 3001",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
@@ -53,6 +55,7 @@
   "devDependencies": {
     "@types/node": "^24.7.2",
     "@types/pg": "^8.20.0",
+    "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"

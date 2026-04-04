@@ -75,16 +75,6 @@ export type StationConnector = {
   sortOrder: number;
 };
 
-export type StationSync = {
-  updatedAt: string;
-  isArchived: boolean;
-  archivedAt: string | null;
-  isDeleted: boolean;
-  deletedAt: string | null;
-  deletionMode: 'hard_delete';
-  conflictFields?: string[];
-};
-
 export type StationResponseData = {
   id: string;
   name: string;
@@ -111,7 +101,6 @@ export type StationResponseData = {
   createdAt?: string;
   updatedAt: string;
   summary: StationSummary;
-  sync: StationSync;
 };
 
 export type TestHistoryResponseData = {
@@ -233,21 +222,6 @@ export const assertStationConnectorSummary = (summary: StationConnectorSummary) 
   assert.equal(typeof summary.hasAC, 'boolean');
   assert.equal(typeof summary.hasDC, 'boolean');
   assert.equal(typeof summary.count, 'number');
-};
-
-export const assertStationSync = (sync: StationSync, expectConflictFields = false) => {
-  assertIsoDateTime(sync.updatedAt);
-  assert.equal(sync.isDeleted, false);
-  assert.equal(sync.deletedAt, null);
-  assert.equal(sync.deletionMode, 'hard_delete');
-  assert.equal(typeof sync.isArchived, 'boolean');
-  assert.ok(sync.archivedAt === null || !Number.isNaN(Date.parse(sync.archivedAt)));
-
-  if (expectConflictFields) {
-    assert.ok(Array.isArray(sync.conflictFields));
-  } else {
-    assert.equal('conflictFields' in sync, false);
-  }
 };
 
 export const assertJsonResponse = (response: InjectResponse) => {

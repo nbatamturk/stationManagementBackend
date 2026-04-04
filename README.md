@@ -30,6 +30,7 @@ Update these values before running the stack:
 - `DATABASE_URL`
 - `TEST_DATABASE_URL`
 - `JWT_SECRET`
+- `API_BASE_URL`
 - `NEXT_PUBLIC_API_BASE_URL`
 - `EXPO_PUBLIC_API_BASE_URL`
 
@@ -74,7 +75,7 @@ Recommended local pairing:
 | --- | --- | --- | --- |
 | `.env` | Backend runtime config | `DATABASE_URL`, `JWT_SECRET` | Loaded for normal backend runs. |
 | `.env.test` | Local integration test overrides | `TEST_DATABASE_URL` | Loaded after `.env`; keeps test DB config separate from daily dev config. |
-| `admin-web/.env.local` | Admin web local config | `NEXT_PUBLIC_API_BASE_URL` | Usually `http://localhost:3000`. |
+| `admin-web/.env.local` | Admin web local config | `API_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL` | Usually both point to `http://localhost:3000` in local development. |
 | `MobileApp/.env` | Mobile app local config | `EXPO_PUBLIC_API_BASE_URL` | Use an emulator or LAN-friendly backend URL. |
 
 Important notes:
@@ -96,6 +97,7 @@ Important notes:
 | `npm run doctor` | Check Node/tooling plus env and local setup readiness |
 | `npm run dev:backend` | Start backend in watch mode |
 | `npm run dev:admin` | Start admin-web on port `3001` |
+| `npm run dev:all` | Start backend and admin-web together |
 | `npm run dev:mobile` | Start the Expo dev server |
 | `npm run demo:reset` | Apply migrations and reseed demo data |
 | `npm run build` | Build the backend |
@@ -132,6 +134,12 @@ For the least confusing local workflow:
 5. Verify `http://localhost:3000/health`.
 6. Run `npm run dev:admin`.
 7. Run `npm run dev:mobile`.
+
+If you only need the backend and admin-web together, use:
+
+```bash
+npm run dev:all
+```
 
 Useful local URLs:
 
@@ -177,6 +185,35 @@ The repeatable internal walkthrough lives in [docs/demo-workflow.md](/home/burak
 
 Use it when you want a stable team demo or when you need to reset the workspace back to a known seed state.
 
+## Production Process Model
+
+For production, keep backend and admin-web as separate processes and put a reverse proxy in front of them.
+
+Recommended shape:
+
+- PM2 process 1: backend on `127.0.0.1:3000`
+- PM2 process 2: admin-web on `127.0.0.1:3001`
+- Nginx or Caddy in front:
+  - `/` -> admin-web
+  - backend on a dedicated API host or routed path, depending on your infrastructure
+
+This repo includes a starter PM2 config at [ecosystem.config.js](/home/burak/Desktop/Test%20Tools%20Dev/stationManagementBackend/ecosystem.config.js).
+
+Typical production flow:
+
+```bash
+npm run build
+npm --prefix admin-web run build
+pm2 start ecosystem.config.js
+pm2 save
+```
+
+Notes:
+
+- Backend runtime config still comes from root `.env`.
+- Admin-web should have `API_BASE_URL` pointing to the backend process.
+- If mobile clients or direct browser assets need a public backend origin, set `NEXT_PUBLIC_API_BASE_URL` accordingly in the admin-web environment.
+
 ## Current Scope
 
 What is already integrated:
@@ -192,7 +229,7 @@ What is already integrated:
 
 Known limitations kept out of this readiness pass:
 
-- offline sync
+- no local/offline station database or sync; the backend remains the source of truth
 - background sync
 - mobile attachment upload flows
 - deployment and production SaaS infrastructure

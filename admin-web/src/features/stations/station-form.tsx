@@ -142,7 +142,6 @@ function buildEditableModels(config: StationConfig, initial?: Partial<Station>) 
       name: initial.model ?? 'Unknown model',
       description: null,
       imageUrl: null,
-      logoUrl: null,
       isActive: false,
       createdAt: '',
       updatedAt: '',

@@ -75,18 +75,6 @@ export default function SettingsScreen(): React.JSX.Element {
           </Text>
         </AppCard>
       </Pressable>
-
-      <AppCard>
-        <Text style={styles.itemTitle}>Pilot Limitations</Text>
-        <View style={styles.noteGroup}>
-          <Text style={styles.noteText}>Offline sync is not enabled in this mobile build yet.</Text>
-          <Text style={styles.noteText}>Background sync and attachment upload flows are intentionally disabled.</Text>
-          <Text style={styles.noteText}>Backend records remain the source of truth for all field actions.</Text>
-          <Text style={styles.noteText}>
-            Station catalog, custom field definitions, users, and mobile version policy are managed in admin-web.
-          </Text>
-        </View>
-      </AppCard>
     </AppScreen>
   );
 }
@@ -122,13 +110,5 @@ const styles = StyleSheet.create({
   sessionMeta: {
     fontSize: 13,
     color: colors.mutedText,
-  },
-  noteGroup: {
-    gap: 8,
-  },
-  noteText: {
-    fontSize: 13,
-    color: colors.mutedText,
-    lineHeight: 18,
   },
 });

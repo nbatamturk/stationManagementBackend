@@ -3,9 +3,7 @@ import { Type } from '@sinclair/typebox';
 import {
   connectorTypeValues,
   currentTypeValues,
-  stationDeletionModeValues,
   stationStatusValues,
-  stationSyncConflictFieldValues,
   stationTestResultValues,
   stationViewValues,
 } from '../../contracts/domain';
@@ -30,23 +28,6 @@ const connectorTypeSchema = createEnumSchema(connectorTypeValues);
 const stationViewSchema = createEnumSchema(stationViewValues);
 
 const testResultSchema = createEnumSchema(stationTestResultValues);
-
-const stationSyncConflictFieldSchema = createEnumSchema(stationSyncConflictFieldValues);
-
-const stationDeletionModeSchema = createEnumSchema(stationDeletionModeValues);
-
-const stationSyncSchema = Type.Object(
-  {
-    updatedAt: isoDateTimeSchema,
-    isArchived: Type.Boolean(),
-    archivedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
-    isDeleted: Type.Boolean(),
-    deletedAt: Type.Union([isoDateTimeSchema, Type.Null()]),
-    deletionMode: stationDeletionModeSchema,
-    conflictFields: Type.Optional(Type.Array(stationSyncConflictFieldSchema, { minItems: 1, maxItems: 7 })),
-  },
-  { additionalProperties: false },
-);
 
 const stationMobileSummarySchema = Type.Object(
   {
@@ -114,7 +95,6 @@ export const stationCatalogModelSchema = Type.Object(
     name: Type.String({ minLength: 1, maxLength: 120 }),
     description: Type.Union([Type.String({ maxLength: 4000 }), Type.Null()]),
     imageUrl: Type.Union([Type.String({ maxLength: 2000 }), Type.Null()]),
-    logoUrl: Type.Union([Type.String({ maxLength: 2000 }), Type.Null()]),
     isActive: Type.Boolean(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
@@ -160,7 +140,6 @@ const stationCommonProperties = {
 const stationBaseListProperties = {
   ...stationCommonProperties,
   summary: stationMobileSummarySchema,
-  sync: stationSyncSchema,
 } as const;
 
 export const stationListQuerySchema = Type.Object(
@@ -186,7 +165,6 @@ export const stationListQuerySchema = Type.Object(
     isArchived: Type.Optional(Type.Boolean()),
     createdFrom: Type.Optional(isoDateTimeSchema),
     createdTo: Type.Optional(isoDateTimeSchema),
-    updatedFrom: Type.Optional(isoDateTimeSchema),
     updatedTo: Type.Optional(isoDateTimeSchema),
     powerMin: Type.Optional(Type.Number({ minimum: 0, maximum: 1000 })),
     powerMax: Type.Optional(Type.Number({ minimum: 0, maximum: 1000 })),
@@ -295,7 +273,7 @@ export const stationFullListItemSchema = Type.Object(
 
 export const stationListItemSchema = Type.Union([stationFullListItemSchema, stationCompactListItemSchema], {
   description:
-    'Station list items always include `summary` and `sync`. `view=compact` returns the compact item shape; the default view returns the full item shape.',
+    'Station list items always include `summary`. `view=compact` returns the compact item shape; the default view returns the full item shape.',
 });
 
 export const stationListResponseSchema = createPaginatedResponseSchema(stationListItemSchema);
@@ -345,7 +323,6 @@ export const stationCatalogModelCreateBodySchema = Type.Object(
     name: Type.String({ minLength: 1, maxLength: 120 }),
     description: Type.Optional(catalogDescriptionSchema),
     imageUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
-    logoUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
     isActive: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
@@ -357,7 +334,6 @@ export const stationCatalogModelUpdateBodySchema = Type.Object(
     name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
     description: Type.Optional(catalogDescriptionSchema),
     imageUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
-    logoUrl: Type.Optional(Type.Union([Type.String({ maxLength: 2000 }), Type.Null()])),
     isActive: Type.Optional(Type.Boolean()),
   },
   {

@@ -100,7 +100,7 @@ export default function StationDetailPage() {
   });
   const catalogBrand = stationConfig.data.data.brands.find((brand) => brand.id === currentStation.brandId) ?? null;
   const catalogModel = stationConfig.data.data.models.find((model) => model.id === currentStation.modelId) ?? null;
-  const modelMedia = catalogModel?.imageUrl ?? catalogModel?.logoUrl ?? null;
+  const modelMedia = catalogModel?.imageUrl ?? null;
   const notice = searchParams.get('notice');
   const pageNotice =
     notice === 'station-updated'

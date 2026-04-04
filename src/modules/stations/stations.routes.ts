@@ -169,7 +169,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ['Stations'],
         summary: 'List stations',
         description:
-          'Returns a paginated station list. Use `view=compact` for mobile-friendly items, `updatedFrom` for incremental refresh, and `code`, `qrCode`, or `ids` for exact-match lookups. `status` is operational-only; archive lifecycle is represented by `isArchived`. Date filters use ISO 8601 UTC strings. Custom field filters use the `cf.<key>=<value>` query parameter convention.',
+          'Returns a paginated station list. Use `view=compact` for mobile-friendly items and `code`, `qrCode`, or `ids` for exact-match lookups. `status` is operational-only; archive lifecycle is represented by `isArchived`. Date filters use ISO 8601 UTC strings. Custom field filters use the `cf.<key>=<value>` query parameter convention.',
         security: bearerAuthSecurity,
         querystring: stationListQuerySchema,
         response: {
@@ -182,30 +182,6 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
       const query = request.query as Record<string, unknown>;
       const result = await stationsService.list(query);
       return paginatedResponse(result.data, result.meta);
-    },
-  );
-
-  fastify.get(
-    '/summary/:id',
-    {
-      preHandler: [fastify.authenticate],
-      schema: {
-        tags: ['Stations'],
-        summary: 'Get a mobile station summary by id',
-        description:
-          'Returns a lightweight station payload with station identifiers, counts, and sync metadata for mobile detail headers or cache refresh flows.',
-        security: bearerAuthSecurity,
-        params: stationIdParamsSchema,
-        response: {
-          200: stationSummaryResponseSchema,
-          ...pickErrorResponseSchemas(401, 404, 500),
-        },
-      },
-    },
-    async (request) => {
-      const params = request.params as { id: string };
-      const data = await stationsService.getSummaryById(params.id);
-      return successResponse(data);
     },
   );
 
@@ -241,7 +217,7 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ['Stations'],
         summary: 'Get a station by id',
         description:
-          'Returns the full station detail payload, including custom fields plus mobile-oriented summary and sync metadata.',
+          'Returns the full station detail payload, including custom fields and station summary metadata.',
         security: bearerAuthSecurity,
         params: stationIdParamsSchema,
         response: {
@@ -358,7 +334,6 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         name: string;
         description?: string | null;
         imageUrl?: string | null;
-        logoUrl?: string | null;
         isActive?: boolean;
       };
 
@@ -391,7 +366,6 @@ export const stationsRoutes: FastifyPluginAsync = async (fastify) => {
         name?: string;
         description?: string | null;
         imageUrl?: string | null;
-        logoUrl?: string | null;
         isActive?: boolean;
       };
 

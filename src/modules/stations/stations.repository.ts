@@ -34,7 +34,6 @@ export type StationListFilter = {
   isArchived?: boolean;
   createdFrom?: Date;
   createdTo?: Date;
-  updatedFrom?: Date;
   updatedTo?: Date;
   powerMin?: number;
   powerMax?: number;
@@ -85,10 +84,6 @@ export class StationsRepository {
 
     if (filters.createdTo) {
       conditions.push(lte(stations.createdAt, filters.createdTo));
-    }
-
-    if (filters.updatedFrom) {
-      conditions.push(gte(stations.updatedAt, filters.updatedFrom));
     }
 
     if (filters.updatedTo) {

@@ -18,18 +18,6 @@ export interface StationSummary {
   latestTestResult: 'pass' | 'fail' | 'warning' | null;
 }
 
-export interface StationSync {
-  updatedAt: string;
-  isArchived: boolean;
-  archivedAt: string | null;
-  isDeleted: boolean;
-  deletedAt: string | null;
-  deletionMode: 'hard_delete';
-  conflictFields?: Array<
-    'status' | 'location' | 'lastTestDate' | 'notes' | 'customFields' | 'attachments' | 'issues'
-  >;
-}
-
 export interface StationListCustomFieldFilter {
   fieldId: string;
   type: CustomFieldType;
@@ -113,7 +101,6 @@ export interface Station {
   connectorSummary: StationConnectorSummary;
   connectors?: StationConnector[];
   summary?: StationSummary;
-  sync?: StationSync;
   customFields?: Record<string, unknown>;
 }
 

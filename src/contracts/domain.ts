@@ -18,18 +18,6 @@ export const issueStatusValues = ['open', 'in_progress', 'resolved', 'closed'] a
 export const stationViewValues = ['full', 'compact'] as const;
 
 export const attachmentTargetTypeValues = ['station', 'issue', 'testHistory'] as const;
-
-export const stationSyncConflictFieldValues = [
-  'status',
-  'location',
-  'lastTestDate',
-  'notes',
-  'customFields',
-  'attachments',
-  'issues',
-] as const;
-
-export const stationDeletionModeValues = ['hard_delete'] as const;
 export const mobilePlatformValues = ['ios', 'android'] as const;
 
 export type UserRoleValue = (typeof userRoleValues)[number];
@@ -43,6 +31,4 @@ export type IssueSeverityValue = (typeof issueSeverityValues)[number];
 export type IssueStatusValue = (typeof issueStatusValues)[number];
 export type StationViewValue = (typeof stationViewValues)[number];
 export type AttachmentTargetTypeValue = (typeof attachmentTargetTypeValues)[number];
-export type StationSyncConflictFieldValue = (typeof stationSyncConflictFieldValues)[number];
-export type StationDeletionModeValue = (typeof stationDeletionModeValues)[number];
 export type MobilePlatformValue = (typeof mobilePlatformValues)[number];
