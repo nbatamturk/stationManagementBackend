@@ -196,3 +196,12 @@ Known limitations kept out of this readiness pass:
 - background sync
 - mobile attachment upload flows
 - deployment and production SaaS infrastructure
+
+## License
+
+All rights reserved.
+
+This repository is for viewing purposes only.
+No part of this code may be used, copied, modified, or distributed without explicit permission.
+
+Unauthorized use, reproduction, or distribution is strictly prohibited.
